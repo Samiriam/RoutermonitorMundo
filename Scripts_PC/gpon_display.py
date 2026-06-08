@@ -9,6 +9,7 @@ import requests
 import json
 import os
 import sys
+import subprocess
 from datetime import datetime
 
 CONFIG_FILE = "router_config.json"
@@ -22,6 +23,71 @@ def load_config():
         except:
             pass
     return {"ip": "192.168.1.1", "user": "user", "password": "user1234"}
+
+def get_new_firmware_data(router_ip):
+    config = load_config()
+    helper_path = os.path.join(os.path.dirname(__file__), "router_web_client.js")
+
+    try:
+        result = subprocess.run(
+            ["node", helper_path, router_ip, config.get("user", "user"), config.get("password", "user1234")],
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+        )
+    except Exception as exc:
+        return {
+            "ModelName": "Router con firmware nuevo (RP3084+)",
+            "SoftwareVersion": "N/A (helper no disponible)",
+            "WANAccessType": "N/A",
+            "uptime": "0",
+            "cpu_usage": "0",
+            "ponBytesSent": "0",
+            "ponBytesReceived": "0",
+            "NOTA": f"No se pudo ejecutar el helper web: {exc}",
+        }
+
+    output = (result.stdout or "").strip()
+    if not output:
+        return {
+            "ModelName": "Router con firmware nuevo (RP3084+)",
+            "SoftwareVersion": "N/A (sin salida del helper)",
+            "WANAccessType": "N/A",
+            "uptime": "0",
+            "cpu_usage": "0",
+            "ponBytesSent": "0",
+            "ponBytesReceived": "0",
+            "NOTA": (result.stderr or "El helper web no devolvio salida").strip(),
+        }
+
+    try:
+        parsed = json.loads(output.splitlines()[-1])
+    except Exception:
+        return {
+            "ModelName": "Router con firmware nuevo (RP3084+)",
+            "SoftwareVersion": "N/A (salida invalida)",
+            "WANAccessType": "N/A",
+            "uptime": "0",
+            "cpu_usage": "0",
+            "ponBytesSent": "0",
+            "ponBytesReceived": "0",
+            "NOTA": output[:300],
+        }
+
+    if parsed.get("success"):
+        return parsed["data"]
+
+    return {
+        "ModelName": "Router con firmware nuevo (RP3084+)",
+        "SoftwareVersion": "N/A (login web fallo)",
+        "WANAccessType": "N/A",
+        "uptime": "0",
+        "cpu_usage": "0",
+        "ponBytesSent": "0",
+        "ponBytesReceived": "0",
+        "NOTA": parsed.get("error", "No se pudo autenticar por flujo web"),
+    }
 
 def detect_firmware(router_ip):
     """Detecta que firmware tiene el router"""
@@ -78,17 +144,7 @@ def get_gpon_data(router_ip):
         return json.loads(resp.text), "OLD"
 
     elif firmware == "NEW":
-        # Firmware nuevo - solo podemos verificar que esta vivo
-        return {
-            "ModelName": "Router con firmware nuevo (RP3084+)",
-            "SoftwareVersion": "N/A (requiere login)",
-            "WANAccessType": "N/A (requiere login)",
-            "uptime": "0",
-            "cpu_usage": "0",
-            "ponBytesSent": "0",
-            "ponBytesReceived": "0",
-            "NOTA": "Este firmware requiere login con AES para obtener datos"
-        }, "NEW"
+        return get_new_firmware_data(router_ip), "NEW"
 
     return None, "UNKNOWN"
 
@@ -149,7 +205,7 @@ def main():
             print("=" * 65)
             return
 
-        if firmware == "NEW":
+        if firmware == "NEW" and not data.get("authenticated"):
             print(f"  [INFO] Router con firmware NUEVO detectado (RP3084+)")
             print(f"         Este firmware requiere login con AES para obtener datos")
             print(f"         Solo se puede verificar conexion (heartbeat OK)")
@@ -157,6 +213,13 @@ def main():
             print("-" * 65)
             print("  Presiona ENTER para salir...")
             return
+
+        if firmware == "NEW":
+            print(f"  [INFO] Router con firmware NUEVO detectado (RP3084+)")
+            print(f"         Login web automatizado completado")
+            if data.get("NOTA"):
+                print(f"         Nota: {data['NOTA']}")
+            print()
 
         uptime_sec = int(data.get('uptime', 0))
         print(f"  [UPTIME]")
@@ -170,7 +233,22 @@ def main():
         print(f"    Enviado:   {format_bytes(pon_sent)} ({format_number(pon_sent)} bytes)")
         print(f"    Recibido:  {format_bytes(pon_recv)} ({format_number(pon_recv)} bytes)")
         print(f"    Total:     {format_bytes(pon_sent + pon_recv)}")
+        if firmware == "NEW" and data.get('NOTA'):
+            print(f"    Nota:      Contador GPON total no confirmado en RP3084+")
         print()
+
+        wifi5_sent = int(data.get('wifi5_bytes_sent', 0) or 0)
+        wifi5_recv = int(data.get('wifi5_bytes_received', 0) or 0)
+        if wifi5_sent or wifi5_recv or data.get('wifi5_channel'):
+            print(f"  [WIFI 5 GHZ]")
+            print(f"    Canal:     {data.get('wifi5_channel', 'N/A')}")
+            if data.get('wifi5_ssid_1'):
+                print(f"    SSID1:     {data.get('wifi5_ssid_1', 'N/A')}")
+            if data.get('wifi5_ssid_2'):
+                print(f"    SSID2:     {data.get('wifi5_ssid_2', 'N/A')}")
+            print(f"    Enviado:   {format_bytes(wifi5_sent)} ({format_number(wifi5_sent)} bytes)")
+            print(f"    Recibido:  {format_bytes(wifi5_recv)} ({format_number(wifi5_recv)} bytes)")
+            print()
 
         cpu = data.get('cpu_usage', 'N/A')
         mem_total = int(data.get('mem_total', 0))

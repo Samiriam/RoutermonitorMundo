@@ -62,3 +62,6 @@ Flutter_App/router_monitor_app/.flutter-plugins
 .vscode/
 .idea/
 *.iml
+
+# Dependencias Node locales para helpers de escritorio
+**/node_modules/

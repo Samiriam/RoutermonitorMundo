@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import base64
+import subprocess
 from datetime import datetime
 from Crypto.Cipher import AES
 
@@ -26,6 +27,26 @@ def load_config():
 def save_config(config):
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=2)
+
+def get_new_firmware_data_via_browser(router_ip, username, password):
+    helper_path = os.path.join(os.path.dirname(__file__), "router_web_client.js")
+    result = subprocess.run(
+        ["node", helper_path, router_ip, username, password],
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+    )
+
+    output = (result.stdout or "").strip()
+    if not output:
+        raise RuntimeError((result.stderr or "El helper web no devolvio salida").strip())
+
+    parsed = json.loads(output.splitlines()[-1])
+    if not parsed.get("success"):
+        raise RuntimeError(parsed.get("error", "No se pudo autenticar por flujo web"))
+
+    return parsed["data"]
 
 def pkcs7_pad(data, block_size=16):
     """PKCS7 padding"""
@@ -268,22 +289,27 @@ def main():
             pass
 
     # Si no funciona el endpoint simple, intentar con login AES
-    print(f"  [INFO] Endpoint simple no funciona, intentando con login AES...")
+    print(f"  [INFO] Endpoint simple no funciona, usando flujo web real del firmware nuevo...")
 
-    print("\n[2] Haciendo login con AES...")
-    session_id, g_fhKey, g_fhIv = login(router_ip, username, password, session)
-
-    if not session_id:
-        print("\n[!] No se pudo hacer login")
+    try:
+        data = get_new_firmware_data_via_browser(router_ip, username, password)
+    except Exception as exc:
+        print(f"\n[!] No se pudo completar el login web: {exc}")
         return
 
-    print("\n[3] Obteniendo informacion del router...")
-    data = get_base_info(router_ip, session, session_id, g_fhKey, g_fhIv)
-
-    if data:
-        print(f"  [OK] Datos recibidos")
-        # Mostrar los datos que se puedan extraer
-        print(f"  Respuesta: {json.dumps(data, indent=2)[:500]}")
+    print("\n[2] Datos obtenidos del firmware nuevo")
+    print(f"  Modelo: {data.get('ModelName', 'N/A')}")
+    print(f"  Firmware: {data.get('SoftwareVersion', 'N/A')}")
+    print(f"  Uptime: {format_uptime(data.get('uptime', 0))}")
+    print(f"  CPU: {data.get('cpu_usage', 'N/A')}%")
+    print(f"  WAN/PON: {data.get('WANAccessType', 'N/A')}")
+    if data.get('txpower') or data.get('rxpower'):
+        print(f"  Optica TX/RX: {data.get('txpower', 'N/A')} dBm / {data.get('rxpower', 'N/A')} dBm")
+    if data.get('wifi5_bytes_sent') or data.get('wifi5_bytes_received'):
+        print(f"  WiFi 5G enviado: {format_bytes(data.get('wifi5_bytes_sent'))}")
+        print(f"  WiFi 5G recibido: {format_bytes(data.get('wifi5_bytes_received'))}")
+    if data.get('NOTA'):
+        print(f"  Nota: {data['NOTA']}")
 
     print("\n" + "=" * 65)
     print("  FIN")

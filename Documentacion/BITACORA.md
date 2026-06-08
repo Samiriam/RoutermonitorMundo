@@ -26,6 +26,49 @@
 
 ## Hallazgos Importantes
 
+### Verificación de entorno 2026-06-08
+
+- El repositorio local fue sincronizado correctamente con `origin/main`.
+- El router `192.168.1.1` responde por red local (`ping` OK).
+- Inicialmente no fue posible ejecutar los scripts PC porque `python` apuntaba al alias de Microsoft Store y `py` no existia.
+- Se verifico que no habia `python.exe` real utilizable en `C:` ni en `E:`; `G:` es Google Drive virtual y no un disco de respaldo local.
+- Se instalo Python 3.12.10 con `winget` en `C:\Users\LASVIOLETAS-02\AppData\Local\Programs\Python\Python312\python.exe`.
+- Se instalaron solo las dependencias minimas del proyecto para escritorio: `requests` y `pycryptodome`.
+- `gpon_display.py` fue ejecutado contra `192.168.1.1` y detecto correctamente firmware nuevo `RP3084+`, informando que requiere login AES.
+- `router_monitor_login.py` fue ejecutado contra `192.168.1.1`: obtuvo `sessionid`, derivo clave AES e IV, pero ambos intentos de login devolvieron `403 Forbidden`.
+- Resultado inicial: el entorno Python ya funciona; el bloqueo real vuelve a ser el flujo AES del firmware nuevo, no el equipo Windows.
+
+### Restauración escritorio RP3084+ 2026-06-08
+
+- Se capturo el flujo real del navegador con Playwright contra `login.html`.
+- Hallazgos confirmados del flujo web nuevo:
+  - `get_base_info` sigue devolviendo `403` aun con sesion.
+  - El login real no usa `do_login`; usa `POST /fh_api/sign/DO_WEB_LOGIN?...`.
+  - Las llamadas autenticadas del front usan `get_device_info` y `get_value_by_xmlnode`.
+  - `get_xmlnode_js_file` expone el catalogo de nodos XML del firmware nuevo.
+- Se implemento `Scripts_PC/router_web_client.js` con Playwright para reutilizar el flujo real del frontend del router.
+- `gpon_display.py` y `router_monitor_login.py` ahora delegan a ese helper solo cuando detectan firmware `RP3084+`.
+- El camino viejo `/cgi-bin/ajax?ajaxmethod=get_base_info` para el router antiguo no se toco.
+- Pruebas reales exitosas:
+  - `node router_web_client.js 192.168.1.1 user user1234`
+  - `python gpon_display.py 192.168.1.1`
+  - `python router_monitor_login.py`
+- Datos reales recuperados en firmware nuevo:
+  - modelo `HG5853SF`
+  - firmware `RP3084`
+  - uptime
+  - CPU
+  - RAM total/libre
+  - estado PON (`pon_state`)
+- Se siguio explorando el frontend autenticado y se confirmo ademas:
+  - `#/status/opticalInfo/opticalInfo` muestra valores reales de potencia optica
+  - `#/status/wifiStatus/wifiStatus_5g` muestra contadores reales de bytes y paquetes 5 GHz
+- El helper se amplio para leer esas dos pantallas y devolver:
+  - `txpower`, `rxpower`, `transceivertemperature`, `supplyvottage`, `biascurrent`
+  - `wifi5_bytes_sent`, `wifi5_bytes_received`, `wifi5_packets_sent`, `wifi5_packets_received`, SSIDs y canal
+- Limitacion vigente:
+  - los nodos candidatos para bytes GPON y metricas PON totales siguen devolviendo vacio; por eso `ponBytesSent/Received` permanecen en `0` hasta confirmar un nodo o metodo oculto equivalente al firmware antiguo.
+
 ### Dos firmwares diferentes detectados
 
 | Característica | Router Casa (HG6145F) FW Antiguo | Router Nuevo (RP3084+) |

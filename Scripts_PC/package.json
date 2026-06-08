@@ -1,0 +1,8 @@
+{
+  "name": "router-monitor-scripts-pc",
+  "private": true,
+  "type": "commonjs",
+  "dependencies": {
+    "playwright": "^1.55.0"
+  }
+}
