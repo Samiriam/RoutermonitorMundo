@@ -145,26 +145,13 @@ class _MonitorPageState extends State<MonitorPage> {
   }
 
   Future<Map<String, dynamic>> _fetchNewFirmwareWithWebView() async {
-    final controller = _routerWebView ?? WebViewController();
-    _routerWebView = controller;
+    final controller = await _ensureRouterWebView();
 
-    await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
     await controller.loadRequest(Uri.parse('http://$routerIp/login.html'));
     await _waitForWebViewReady(controller);
+    await _waitForLoginControls(controller);
 
-    await controller.runJavaScript('''
-      const userInput = document.querySelector('#user_name');
-      const passInput = document.querySelector('#loginpp');
-      const loginButton = document.querySelector('#login_btn');
-      if (!userInput || !passInput || !loginButton) {
-        throw new Error('No se encontraron controles de login RP3084+');
-      }
-      userInput.value = ${jsonEncode(username)};
-      passInput.value = ${jsonEncode(password)};
-      userInput.dispatchEvent(new Event('input', { bubbles: true }));
-      passInput.dispatchEvent(new Event('input', { bubbles: true }));
-      loginButton.click();
-    ''');
+    await controller.runJavaScript(_loginScript());
 
     await _waitForWebViewLogin(controller);
 
@@ -182,6 +169,25 @@ class _MonitorPageState extends State<MonitorPage> {
     return data;
   }
 
+  Future<WebViewController> _ensureRouterWebView() async {
+    if (_routerWebView != null) return _routerWebView!;
+
+    final controller = WebViewController();
+    await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+    await controller.setUserAgent(
+      'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+    );
+
+    setState(() {
+      _routerWebView = controller;
+    });
+
+    // Give Android time to attach the hidden WebViewWidget before navigation.
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    return controller;
+  }
+
   Future<void> _waitForWebViewReady(WebViewController controller) async {
     for (var i = 0; i < 30; i++) {
       final state = await controller.runJavaScriptReturningResult('document.readyState');
@@ -190,17 +196,82 @@ class _MonitorPageState extends State<MonitorPage> {
     }
   }
 
-  Future<void> _waitForWebViewLogin(WebViewController controller) async {
+  Future<void> _waitForLoginControls(WebViewController controller) async {
     for (var i = 0; i < 60; i++) {
+      final hasControls = await controller.runJavaScriptReturningResult('''
+        Boolean(document.querySelector('#user_name') &&
+          document.querySelector('#loginpp') &&
+          document.querySelector('#login_btn'))
+      ''');
+      if (hasControls.toString().contains('true')) return;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+
+    final diagnostic = await _webViewDiagnostic(controller);
+    throw Exception('controles de login RP3084+ no encontrados: $diagnostic');
+  }
+
+  Future<void> _waitForWebViewLogin(WebViewController controller) async {
+    for (var i = 0; i < 90; i++) {
       final href = await controller.runJavaScriptReturningResult('location.href');
-      if (href.toString().contains('main.html')) {
+      final hasPost = await controller.runJavaScriptReturningResult('typeof window.\$post === "function"');
+      if (href.toString().contains('main.html') || hasPost.toString().contains('true')) {
         await Future<void>.delayed(const Duration(seconds: 2));
         return;
       }
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
-    throw Exception('timeout iniciando sesion RP3084+');
+
+    final diagnostic = await _webViewDiagnostic(controller);
+    throw Exception('timeout iniciando sesion RP3084+: $diagnostic');
   }
+
+  Future<String> _webViewDiagnostic(WebViewController controller) async {
+    try {
+      final raw = await controller.runJavaScriptReturningResult('''
+        JSON.stringify({
+          href: location.href,
+          title: document.title,
+          body: (document.body && document.body.innerText || '').slice(0, 220)
+        })
+      ''');
+      return raw.toString();
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  String _loginScript() => '''
+    (() => {
+      const userInput = document.querySelector('#user_name');
+      const passInput = document.querySelector('#loginpp');
+      const loginButton = document.querySelector('#login_btn');
+      if (!userInput || !passInput || !loginButton) {
+        throw new Error('No se encontraron controles de login RP3084+');
+      }
+
+      const setValue = (element, value) => {
+        const proto = Object.getPrototypeOf(element);
+        const descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+        if (descriptor && descriptor.set) {
+          descriptor.set.call(element, value);
+        } else {
+          element.value = value;
+        }
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        element.dispatchEvent(new Event('blur', { bubbles: true }));
+      };
+
+      setValue(userInput, ${jsonEncode(username)});
+      setValue(passInput, ${jsonEncode(password)});
+      loginButton.removeAttribute('disabled');
+      loginButton.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+      loginButton.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+      loginButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      if (typeof loginButton.onclick === 'function') loginButton.onclick();
+    })();
+  ''';
 
   dynamic _decodeWebViewJson(Object raw) {
     dynamic value = raw;
@@ -774,14 +845,16 @@ class _MonitorPageState extends State<MonitorPage> {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _fetchData,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+      body: Stack(
+        children: [
+          RefreshIndicator(
+            onRefresh: _fetchData,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
               if (errorMessage.isNotEmpty)
                 Card(
                   color: Colors.red.shade900,
@@ -964,9 +1037,22 @@ class _MonitorPageState extends State<MonitorPage> {
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                 ),
               ],
-            ],
+                ],
+              ),
+            ),
           ),
-        ),
+          if (_routerWebView != null)
+            Positioned(
+              left: 0,
+              bottom: 0,
+              width: 1,
+              height: 1,
+              child: Opacity(
+                opacity: 0.01,
+                child: WebViewWidget(controller: _routerWebView!),
+              ),
+            ),
+        ],
       ),
     );
   }

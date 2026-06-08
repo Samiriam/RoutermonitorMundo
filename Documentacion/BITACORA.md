@@ -111,6 +111,26 @@
   - prueba oculta con Tk llamando `RouterMonitorApp.get_data()` y `get_display_traffic_bytes()`: devolvio `NEW HG5853SF RP3084` con suma LAN/WiFi enviada/recibida.
 - Pendiente operativo: cerrar la ventana GUI abierta y abrirla de nuevo desde `Monitor_GPON.bat` para cargar el codigo actualizado.
 
+### Fix APK Android WebView RP3084+ 2026-06-08
+
+- Problema observado en celular: `No se pudo consultar el router. Firmware antiguo: HTTP 403. Firmware RP3084+: Exception: timeout iniciando sesion RP3084+`.
+- Interpretacion:
+  - `HTTP 403` del camino antiguo es esperado en RP3084+;
+  - el fallo real era que el WebView Android no completaba el login hacia `main.html`.
+- Hipotesis tecnica aplicada: el `WebViewController` estaba cargando sin un `WebViewWidget` montado en el arbol visual, y Android WebView puede no ejecutar el flujo del frontend igual que un navegador si no esta adjunto.
+- Correccion aplicada:
+  - se monta un `WebViewWidget` oculto de 1x1 px dentro del `Stack` de la pantalla;
+  - se habilita JavaScript y user-agent movil;
+  - se espera explicitamente a que existan `#user_name`, `#loginpp` y `#login_btn` antes de completar credenciales;
+  - se simulan eventos `input`, `change`, `blur`, `mousedown`, `mouseup` y `click`;
+  - el timeout ahora incluye diagnostico con `href`, `title` y texto parcial del body para el siguiente retest.
+- Version generada: `APK/Monitor_GPON_v1.2.1+4-debug.apk`.
+- Verificacion local:
+  - `flutter analyze`: correcto;
+  - `flutter test`: correcto;
+  - `flutter build apk --debug`: correcto.
+- Pendiente: prueba manual en Android contra el router RP3084+.
+
 ### Dos firmwares diferentes detectados
 
 | Característica | Router Casa (HG6145F) FW Antiguo | Router Nuevo (RP3084+) |
