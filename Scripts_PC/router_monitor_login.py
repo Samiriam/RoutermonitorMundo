@@ -302,12 +302,31 @@ def main():
     print(f"  Firmware: {data.get('SoftwareVersion', 'N/A')}")
     print(f"  Uptime: {format_uptime(data.get('uptime', 0))}")
     print(f"  CPU: {data.get('cpu_usage', 'N/A')}%")
+    print(f"  RAM: {format_bytes(int(data.get('mem_free', 0)))} free / {format_bytes(int(data.get('mem_total', 0)))} total")
     print(f"  WAN/PON: {data.get('WANAccessType', 'N/A')}")
     if data.get('txpower') or data.get('rxpower'):
         print(f"  Optica TX/RX: {data.get('txpower', 'N/A')} dBm / {data.get('rxpower', 'N/A')} dBm")
+        print(f"  Optica Temp/Volt/Bias: {data.get('transceivertemperature', 'N/A')}C / {data.get('supplyvottage', 'N/A')}V / {data.get('biascurrent', 'N/A')}mA")
+
+    # WiFi 5GHz
     if data.get('wifi5_bytes_sent') or data.get('wifi5_bytes_received'):
-        print(f"  WiFi 5G enviado: {format_bytes(data.get('wifi5_bytes_sent'))}")
-        print(f"  WiFi 5G recibido: {format_bytes(data.get('wifi5_bytes_received'))}")
+        print(f"  WiFi 5G ({data.get('wifi5_ssid_1','')}): enviado={format_bytes(data.get('wifi5_bytes_sent'))}, recibido={format_bytes(data.get('wifi5_bytes_received'))}, canal={data.get('wifi5_channel','')}")
+
+    # WiFi 2.4GHz
+    if data.get('wifi24_bytes_sent') or data.get('wifi24_bytes_received'):
+        print(f"  WiFi 2.4G ({data.get('wifi24_ssid_1','')}): enviado={format_bytes(data.get('wifi24_bytes_sent'))}, recibido={format_bytes(data.get('wifi24_bytes_received'))}, canal={data.get('wifi24_channel','')}")
+
+    # LAN ports
+    has_lan = any(data.get(f'lan{i}_status', '') for i in range(1, 10))
+    if has_lan:
+        for i in range(1, 10):
+            status = data.get(f'lan{i}_status', '')
+            if not status:
+                continue
+            sent = int(data.get(f'lan{i}_bytes_sent', 0) or 0)
+            recv = int(data.get(f'lan{i}_bytes_received', 0) or 0)
+            print(f"  LAN Port {i}: {status}, enviado={format_bytes(sent)}, recibido={format_bytes(recv)}")
+
     if data.get('NOTA'):
         print(f"  Nota: {data['NOTA']}")
 

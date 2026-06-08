@@ -229,25 +229,57 @@ def main():
 
         pon_sent = int(data.get('ponBytesSent', 0))
         pon_recv = int(data.get('ponBytesReceived', 0))
-        print(f"  [TRAFICO GPON]")
-        print(f"    Enviado:   {format_bytes(pon_sent)} ({format_number(pon_sent)} bytes)")
-        print(f"    Recibido:  {format_bytes(pon_recv)} ({format_number(pon_recv)} bytes)")
-        print(f"    Total:     {format_bytes(pon_sent + pon_recv)}")
-        if firmware == "NEW" and data.get('NOTA'):
-            print(f"    Nota:      Contador GPON total no confirmado en RP3084+")
+        print(f"  [TRAFICO GPON - NO DISPONIBLE EN RP3084+]")
+        print(f"    El firmware RP3084+ no expone contadores PON totales.")
+        print(f"    Se usan contadores por puerto LAN y WiFi como alternativa.")
         print()
 
+        # WiFi 5GHz counters
         wifi5_sent = int(data.get('wifi5_bytes_sent', 0) or 0)
         wifi5_recv = int(data.get('wifi5_bytes_received', 0) or 0)
         if wifi5_sent or wifi5_recv or data.get('wifi5_channel'):
             print(f"  [WIFI 5 GHZ]")
             print(f"    Canal:     {data.get('wifi5_channel', 'N/A')}")
+            print(f"    Estandar:  {data.get('wifi5_standard', 'N/A')}")
             if data.get('wifi5_ssid_1'):
                 print(f"    SSID1:     {data.get('wifi5_ssid_1', 'N/A')}")
             if data.get('wifi5_ssid_2'):
                 print(f"    SSID2:     {data.get('wifi5_ssid_2', 'N/A')}")
             print(f"    Enviado:   {format_bytes(wifi5_sent)} ({format_number(wifi5_sent)} bytes)")
             print(f"    Recibido:  {format_bytes(wifi5_recv)} ({format_number(wifi5_recv)} bytes)")
+            print()
+
+        # WiFi 2.4GHz counters
+        wifi24_sent = int(data.get('wifi24_bytes_sent', 0) or 0)
+        wifi24_recv = int(data.get('wifi24_bytes_received', 0) or 0)
+        if wifi24_sent or wifi24_recv or data.get('wifi24_channel'):
+            print(f"  [WIFI 2.4 GHZ]")
+            print(f"    Canal:     {data.get('wifi24_channel', 'N/A')}")
+            print(f"    Estandar:  {data.get('wifi24_standard', 'N/A')}")
+            if data.get('wifi24_ssid_1'):
+                print(f"    SSID1:     {data.get('wifi24_ssid_1', 'N/A')}")
+            if data.get('wifi24_ssid_2'):
+                print(f"    SSID2:     {data.get('wifi24_ssid_2', 'N/A')}")
+            print(f"    Enviado:   {format_bytes(wifi24_sent)} ({format_number(wifi24_sent)} bytes)")
+            print(f"    Recibido:  {format_bytes(wifi24_recv)} ({format_number(wifi24_recv)} bytes)")
+            print()
+
+        # LAN port counters
+        has_lan = any(data.get(f'lan{i}_bytes_sent', None) is not None for i in range(1, 10))
+        if has_lan:
+            print(f"  [LAN PORTS]")
+            for i in range(1, 10):
+                status = data.get(f'lan{i}_status', '')
+                if not status:
+                    continue
+                sent = int(data.get(f'lan{i}_bytes_sent', 0) or 0)
+                recv = int(data.get(f'lan{i}_bytes_received', 0) or 0)
+                speed = data.get(f'lan{i}_speed', '')
+                if sent or recv or status == 'Up':
+                    print(f"    Port {i}: {status} ({speed})")
+                    if sent or recv:
+                        print(f"      Enviado:   {format_bytes(sent)} ({format_number(sent)} bytes)")
+                        print(f"      Recibido:  {format_bytes(recv)} ({format_number(recv)} bytes)")
             print()
 
         cpu = data.get('cpu_usage', 'N/A')

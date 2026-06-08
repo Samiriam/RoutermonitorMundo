@@ -65,3 +65,8 @@ Flutter_App/router_monitor_app/.flutter-plugins
 
 # Dependencias Node locales para helpers de escritorio
 **/node_modules/
+
+# Capturas de JS del router (artefactos de depuracion, regenerables)
+Scripts_PC/_captured_js/
+Scripts_PC/_capture_*
+!Scripts_PC/_debug_capture_login_flow.js
