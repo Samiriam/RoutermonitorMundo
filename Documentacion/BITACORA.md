@@ -69,6 +69,33 @@
 - Limitacion vigente:
   - los nodos candidatos para bytes GPON y metricas PON totales siguen devolviendo vacio; por eso `ponBytesSent/Received` permanecen en `0` hasta confirmar un nodo o metodo oculto equivalente al firmware antiguo.
 
+### APK y escritorio 2026-06-08
+
+- Se sincronizo el repo local con `origin/main`; antes estaba `behind` respecto del remoto.
+- Se confirmo que los cambios del script PC no se pueden copiar literalmente a Flutter porque el script nuevo usa Node + Playwright.
+- Se porto a la APK el flujo equivalente con `webview_flutter`:
+  - primero intenta el endpoint antiguo `/cgi-bin/ajax?ajaxmethod=get_base_info`;
+  - si ese camino falla, usa WebView para abrir `login.html`, autenticar y ejecutar llamadas `$post` del frontend RP3084+;
+  - extrae sistema, optica, LAN, WiFi 2.4 GHz y WiFi 5 GHz.
+- Comportamiento de consumos en la APK:
+  - router casa/firmware antiguo: el item `TRAFICO GPON` conserva los contadores nativos `ponBytesSent/ponBytesReceived`;
+  - router colegio o RP3084+: el item `TRAFICO GPON` muestra la suma LAN + WiFi 2.4 GHz + WiFi 5 GHz, porque WAN/GPON total no esta expuesto;
+  - la UI/exportacion lo marca como suma por interfaces, no como contador WAN/GPON nativo.
+- La version Android subio a `1.2.0+3` para permitir instalar sobre la build anterior.
+- APK generada: `APK/Monitor_GPON_v1.2.0+3-debug.apk`.
+- Verificacion Flutter:
+  - `flutter pub get`: correcto;
+  - `flutter analyze`: correcto, sin issues;
+  - `flutter test`: correcto, tests pasan;
+  - `flutter build apk --debug`: correcto.
+- Verificacion escritorio:
+  - `node router_web_client.js 192.168.1.1 user user1234`: correcto;
+  - `cmd /c "echo.|python gpon_display.py 192.168.1.1"`: correcto;
+  - `cmd /c "echo.|python router_monitor_login.py"`: correcto.
+- Se corrigio un fallo Windows de codificacion en los scripts Python que capturan salida de Node: ahora usan UTF-8 con reemplazo de errores.
+- Se elimino la carpeta descargada por Playwright en `C:\Users\informatica\AppData\Local\ms-playwright` por preferencia del usuario de no instalar Chrome/Chromium adicional.
+- `router_web_client.js` ahora usa un navegador Chromium existente, encontrado en `C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe`, o la variable `ROUTER_MONITOR_BROWSER` si se quiere indicar otra ruta.
+
 ### Dos firmwares diferentes detectados
 
 | Característica | Router Casa (HG6145F) FW Antiguo | Router Nuevo (RP3084+) |

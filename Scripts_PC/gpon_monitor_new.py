@@ -79,7 +79,7 @@ def get_new_firmware_data(router_ip):
     helper_path = os.path.join(os.path.dirname(__file__), "router_web_client.js")
     result = subprocess.run(
         ["node", helper_path, router_ip, config.get("user", "user"), config.get("password", "user1234")],
-        capture_output=True, text=True, timeout=90, check=False,
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90, check=False,
     )
     output = (result.stdout or "").strip()
     if not output:

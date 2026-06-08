@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 void main() {
   runApp(const RouterMonitorApp());
@@ -50,6 +51,7 @@ class _MonitorPageState extends State<MonitorPage> {
   TrafficRate? currentRate;
   TrafficRate? minRate;
   TrafficRate? maxRate;
+  WebViewController? _routerWebView;
 
   @override
   void initState() {
@@ -85,6 +87,38 @@ class _MonitorPageState extends State<MonitorPage> {
     });
 
     try {
+      final data = await _fetchRouterData();
+      _recordTrafficSample(data);
+      setState(() {
+        routerData = data;
+        lastUpdate = DateTime.now();
+        isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        errorMessage = e.toString().replaceFirst('Exception: ', '');
+        isLoading = false;
+      });
+    }
+  }
+
+  Future<Map<String, dynamic>> _fetchRouterData() async {
+    final oldFirmwareError = await _tryFetchOldFirmware();
+    if (oldFirmwareError.data != null) {
+      return oldFirmwareError.data!;
+    }
+
+    try {
+      return await _fetchNewFirmwareWithWebView();
+    } catch (e) {
+      throw Exception(
+        'No se pudo consultar el router. Firmware antiguo: ${oldFirmwareError.error}. Firmware RP3084+: $e',
+      );
+    }
+  }
+
+  Future<_RouterFetchResult> _tryFetchOldFirmware() async {
+    try {
       final headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': 'http://$routerIp/html/stateOverview_inter.html',
@@ -99,30 +133,280 @@ class _MonitorPageState extends State<MonitorPage> {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        _recordTrafficSample(data);
-        setState(() {
-          routerData = data;
-          lastUpdate = DateTime.now();
-          isLoading = false;
-        });
-      } else {
-        setState(() {
-          errorMessage = "Error: ${response.statusCode}";
-          isLoading = false;
-        });
+        if (data is Map<String, dynamic>) {
+          data['firmwareMode'] = 'OLD';
+          return _RouterFetchResult.data(data);
+        }
       }
+      return _RouterFetchResult.error('HTTP ${response.statusCode}');
     } catch (e) {
-      setState(() {
-        errorMessage = "No se pudo conectar al router\nVerifica la IP y credenciales";
-        isLoading = false;
-      });
+      return _RouterFetchResult.error(e.toString());
     }
   }
 
+  Future<Map<String, dynamic>> _fetchNewFirmwareWithWebView() async {
+    final controller = _routerWebView ?? WebViewController();
+    _routerWebView = controller;
+
+    await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+    await controller.loadRequest(Uri.parse('http://$routerIp/login.html'));
+    await _waitForWebViewReady(controller);
+
+    await controller.runJavaScript('''
+      const userInput = document.querySelector('#user_name');
+      const passInput = document.querySelector('#loginpp');
+      const loginButton = document.querySelector('#login_btn');
+      if (!userInput || !passInput || !loginButton) {
+        throw new Error('No se encontraron controles de login RP3084+');
+      }
+      userInput.value = ${jsonEncode(username)};
+      passInput.value = ${jsonEncode(password)};
+      userInput.dispatchEvent(new Event('input', { bubbles: true }));
+      passInput.dispatchEvent(new Event('input', { bubbles: true }));
+      loginButton.click();
+    ''');
+
+    await _waitForWebViewLogin(controller);
+
+    final raw = await controller.runJavaScriptReturningResult(_newFirmwareQueryScript());
+    final decoded = _decodeWebViewJson(raw);
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception('respuesta invalida del WebView');
+    }
+    if (decoded['success'] != true) {
+      throw Exception(decoded['error']?.toString() ?? 'fallo login web');
+    }
+
+    final data = Map<String, dynamic>.from(decoded['data'] as Map);
+    data['firmwareMode'] = 'NEW';
+    return data;
+  }
+
+  Future<void> _waitForWebViewReady(WebViewController controller) async {
+    for (var i = 0; i < 30; i++) {
+      final state = await controller.runJavaScriptReturningResult('document.readyState');
+      if (state.toString().contains('complete') || state.toString().contains('interactive')) return;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+  }
+
+  Future<void> _waitForWebViewLogin(WebViewController controller) async {
+    for (var i = 0; i < 60; i++) {
+      final href = await controller.runJavaScriptReturningResult('location.href');
+      if (href.toString().contains('main.html')) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    throw Exception('timeout iniciando sesion RP3084+');
+  }
+
+  dynamic _decodeWebViewJson(Object raw) {
+    dynamic value = raw;
+    for (var i = 0; i < 2; i++) {
+      if (value is String) {
+        value = json.decode(value);
+      }
+    }
+    return value;
+  }
+
+  String _newFirmwareQueryScript() => r'''
+    (async () => {
+      function extractMetric(text, label) {
+        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const match = text.match(new RegExp(`${escaped}\\s+([^\\n]+)`));
+        return match ? match[1].trim() : '';
+      }
+      function normalizeNumberString(value) {
+        return (value || '').replace(/,/g, '').trim();
+      }
+      try {
+        if (typeof $post !== 'function') {
+          throw new Error('El frontend del router no expuso $post');
+        }
+
+        const deviceInfo = await $post('get_device_info', null, 'nocheck');
+        const sysValues = await $post('get_value_by_xmlnode', {
+          uptime: 'DeviceInfo.UpTime',
+          cpu_usage: 'DeviceInfo.ProcessStatus.CPUUsage',
+          mem_total: 'DeviceInfo.MemoryStatus.Total',
+          mem_free: 'DeviceInfo.MemoryStatus.Free',
+          model: 'DeviceInfo.ModelName',
+          firmware: 'DeviceInfo.SoftwareVersion',
+          pon_state: 'X_FH_PON_MANAGE.reginfo.pon_link_state',
+          reg_state: 'X_FH_PON_MANAGE.reginfo.loid_reg_state'
+        });
+
+        const wanType = deviceInfo.pon_mode === 5 ? 'XGSPON' : `PON mode ${deviceInfo.pon_mode}`;
+        const portNum = parseInt(deviceInfo.port_num) || 4;
+        const mainSSIDIdx58G = parseInt(deviceInfo.MainSSIDIndex_58G) || 5;
+        const output = {
+          authenticated: true,
+          ModelName: sysValues.model || deviceInfo.devicetype || 'N/A',
+          Manufacturer: deviceInfo.manufacturer || 'N/A',
+          SoftwareVersion: sysValues.firmware || 'N/A',
+          WANAccessType: wanType,
+          uptime: sysValues.uptime || '0',
+          cpu_usage: sysValues.cpu_usage || '0',
+          mem_total: sysValues.mem_total || '0',
+          mem_free: sysValues.mem_free || '0',
+          pon_reg_state: sysValues.pon_state || '',
+          loid_reg_state: sysValues.reg_state || '',
+          ponBytesSent: '0',
+          ponBytesReceived: '0'
+        };
+
+        const lanResp = await $post('get_xml_childnode_value', {
+          url: 'LANDevice.1.LANEthernetInterfaceConfig.',
+          num: portNum,
+          node: {
+            Status: 'Status',
+            X_FH_LinkSpeed: 'X_FH_LinkSpeed',
+            BytesSent: 'Stats.BytesSent',
+            BytesReceived: 'Stats.BytesReceived',
+            PacketsSent: 'Stats.PacketsSent',
+            PacketsReceived: 'Stats.PacketsReceived'
+          }
+        });
+        if (lanResp && lanResp.data) {
+          for (const port of lanResp.data) {
+            const idx = port.child_node_idx;
+            output[`lan${idx}_status`] = port.Status || '';
+            output[`lan${idx}_speed`] = port.X_FH_LinkSpeed || '';
+            output[`lan${idx}_bytes_sent`] = port.BytesSent || '0';
+            output[`lan${idx}_bytes_received`] = port.BytesReceived || '0';
+            output[`lan${idx}_packets_sent`] = port.PacketsSent || '0';
+            output[`lan${idx}_packets_received`] = port.PacketsReceived || '0';
+          }
+        }
+
+        const wifi24Ssids = await $post('get_xml_childnode_value', {
+          url: 'WiFi.SSID.',
+          index: '1-4',
+          node: {
+            Enable: 'Enable', SSID: 'SSID', BytesSent: 'Stats.BytesSent',
+            BytesReceived: 'Stats.BytesReceived', PacketsSent: 'Stats.PacketsSent',
+            PacketsReceived: 'Stats.PacketsReceived'
+          }
+        });
+        if (wifi24Ssids && wifi24Ssids.data && wifi24Ssids.data.length > 0) {
+          const mainSsid = wifi24Ssids.data[0];
+          output.wifi24_bytes_sent = mainSsid.BytesSent || '0';
+          output.wifi24_bytes_received = mainSsid.BytesReceived || '0';
+          output.wifi24_packets_sent = mainSsid.PacketsSent || '0';
+          output.wifi24_packets_received = mainSsid.PacketsReceived || '0';
+          for (let i = 0; i < wifi24Ssids.data.length; i++) {
+            output[`wifi24_ssid_${i + 1}`] = wifi24Ssids.data[i].SSID || '';
+          }
+        }
+
+        try {
+          const wifi5Ssids = await $post('get_xml_childnode_value', {
+            url: 'WiFi.SSID.',
+            index: `${mainSSIDIdx58G}-${mainSSIDIdx58G + 3}`,
+            node: {
+              Enable: 'Enable', SSID: 'SSID', BytesSent: 'Stats.BytesSent',
+              BytesReceived: 'Stats.BytesReceived', PacketsSent: 'Stats.PacketsSent',
+              PacketsReceived: 'Stats.PacketsReceived'
+            }
+          });
+          if (wifi5Ssids && wifi5Ssids.data && wifi5Ssids.data.length > 0) {
+            const mainSsid = wifi5Ssids.data[0];
+            output.wifi5_bytes_sent = mainSsid.BytesSent || '0';
+            output.wifi5_bytes_received = mainSsid.BytesReceived || '0';
+            output.wifi5_packets_sent = mainSsid.PacketsSent || '0';
+            output.wifi5_packets_received = mainSsid.PacketsReceived || '0';
+            for (let i = 0; i < wifi5Ssids.data.length; i++) {
+              output[`wifi5_ssid_${i + 1}`] = wifi5Ssids.data[i].SSID || '';
+            }
+          }
+        } catch (e) {}
+
+        try {
+          const radioResp = await $post('get_xml_childnode_value', {
+            url: 'WiFi.Radio.',
+            num: 2,
+            node: { ChannelsInUse: 'ChannelsInUse', OperatingStandards: 'OperatingStandards' }
+          });
+          if (radioResp && radioResp.data && radioResp.data.length >= 2) {
+            output.wifi24_channel = radioResp.data[0].ChannelsInUse || '';
+            output.wifi24_standard = radioResp.data[0].OperatingStandards || '';
+            output.wifi5_channel = radioResp.data[1].ChannelsInUse || '';
+            output.wifi5_standard = radioResp.data[1].OperatingStandards || '';
+          }
+        } catch (e) {}
+
+        const ponMode = parseInt(deviceInfo.pon_mode);
+        const opticalPrefix = ponMode < 3
+          ? 'WANDevice.1.X_FH_EponInterfaceConfig.1.'
+          : 'WANDevice.1.X_FH_GponInterfaceConfig.1.';
+        try {
+          const optical = await $post('get_value_by_xmlnode', {
+            txpower: `${opticalPrefix}TXPower`,
+            rxpower: `${opticalPrefix}RXPower`,
+            voltage: `${opticalPrefix}SupplyVottage`,
+            bias: `${opticalPrefix}BiasCurrent`,
+            temp: `${opticalPrefix}TransceiverTemperature`
+          });
+          output.txpower = (optical.txpower || '').toString().replace(' dBm', '');
+          output.rxpower = (optical.rxpower || '').toString().replace(' dBm', '');
+          output.supplyvottage = (optical.voltage || '').toString().replace(' V', '');
+          output.biascurrent = (optical.bias || '').toString().replace(' mA', '');
+          output.transceivertemperature = (optical.temp || '').toString().replace(' ℃', '').replace(' C', '');
+        } catch (e) {}
+
+        if (!output.txpower && !output.rxpower) {
+          location.hash = '#/status/opticalInfo/opticalInfo';
+          await new Promise(resolve => setTimeout(resolve, 2500));
+          const opticalText = document.body.innerText;
+          output.txpower = extractMetric(opticalText, 'Transmitted Power').replace(' dBm', '').trim();
+          output.rxpower = extractMetric(opticalText, 'Received Power').replace(' dBm', '').trim();
+          output.transceivertemperature = extractMetric(opticalText, 'Operating Temperature').replace(' ℃', '').trim();
+          output.supplyvottage = extractMetric(opticalText, 'Supply Voltage').replace(' V', '').trim();
+          output.biascurrent = extractMetric(opticalText, 'Bias Current').replace(' mA', '').trim();
+        }
+
+        if (!output.wifi5_bytes_sent && !output.wifi5_bytes_received) {
+          location.hash = '#/status/wifiStatus/wifiStatus_5g';
+          await new Promise(resolve => setTimeout(resolve, 2500));
+          const wifi5Text = document.body.innerText;
+          output.wifi5_ssid_1 = extractMetric(wifi5Text, 'SSID1 Name').replace(/\s+Enable$|\s+Disable$/, '').trim();
+          output.wifi5_ssid_2 = extractMetric(wifi5Text, 'SSID2 Name').replace(/\s+Enable$|\s+Disable$/, '').trim();
+          output.wifi5_packets_received = normalizeNumberString(extractMetric(wifi5Text, 'Received Packets Count'));
+          output.wifi5_bytes_received = normalizeNumberString(extractMetric(wifi5Text, 'Received Bytes Count'));
+          output.wifi5_packets_sent = normalizeNumberString(extractMetric(wifi5Text, 'Sent Packets Count'));
+          output.wifi5_bytes_sent = normalizeNumberString(extractMetric(wifi5Text, 'Sent Bytes Count'));
+          output.wifi5_channel = extractMetric(wifi5Text, 'Frequency (Channel)').trim();
+        }
+
+        if (!output.wifi24_bytes_sent && !output.wifi24_bytes_received) {
+          location.hash = '#/status/wifiStatus/wifiStatus';
+          await new Promise(resolve => setTimeout(resolve, 2500));
+          const wifi24Text = document.body.innerText;
+          output.wifi24_ssid_1 = extractMetric(wifi24Text, 'SSID1 Name').replace(/\s+Enable$|\s+Disable$/, '').trim();
+          output.wifi24_ssid_2 = extractMetric(wifi24Text, 'SSID2 Name').replace(/\s+Enable$|\s+Disable$/, '').trim();
+          output.wifi24_packets_received = normalizeNumberString(extractMetric(wifi24Text, 'Received Packets Count'));
+          output.wifi24_bytes_received = normalizeNumberString(extractMetric(wifi24Text, 'Received Bytes Count'));
+          output.wifi24_packets_sent = normalizeNumberString(extractMetric(wifi24Text, 'Sent Packets Count'));
+          output.wifi24_bytes_sent = normalizeNumberString(extractMetric(wifi24Text, 'Sent Bytes Count'));
+          output.wifi24_channel = extractMetric(wifi24Text, 'Frequency (Channel)').trim();
+        }
+
+        output.NOTA = 'Firmware RP3084+ autenticado via WebView. Contadores por LAN/WiFi; total PON no expuesto.';
+        return JSON.stringify({ success: true, data: output });
+      } catch (error) {
+        return JSON.stringify({ success: false, error: error.message });
+      }
+    })();
+  ''';
+
   void _recordTrafficSample(Map<String, dynamic> data) {
     final now = DateTime.now();
-    final sent = _parseInt(data['ponBytesSent']);
-    final received = _parseInt(data['ponBytesReceived']);
+    final trafficBytes = _trafficBytesForRate(data);
+    final sent = trafficBytes.sent;
+    final received = trafficBytes.received;
     final previous = trafficSamples.isNotEmpty ? trafficSamples.last : null;
     TrafficRate? rate;
 
@@ -154,6 +438,37 @@ class _MonitorPageState extends State<MonitorPage> {
     if (trafficSamples.length > 200) {
       trafficSamples.removeAt(0);
     }
+  }
+
+  _TrafficBytes _trafficBytesForRate(Map<String, dynamic> data) {
+    if (data['firmwareMode'] == 'NEW') {
+      return _aggregateInterfaceBytes(data);
+    }
+    return _TrafficBytes(
+      sent: _parseInt(data['ponBytesSent']),
+      received: _parseInt(data['ponBytesReceived']),
+    );
+  }
+
+  _TrafficBytes _aggregateInterfaceBytes(Map<String, dynamic> data) {
+    var sent = 0;
+    var received = 0;
+    for (var i = 1; i <= 9; i++) {
+      final status = data['lan${i}_status']?.toString() ?? '';
+      final lanSent = _parseInt(data['lan${i}_bytes_sent']);
+      final lanReceived = _parseInt(data['lan${i}_bytes_received']);
+      if (status == 'Up' || lanSent > 0 || lanReceived > 0) {
+        sent += lanSent;
+        received += lanReceived;
+      }
+    }
+    for (final band in ['wifi24', 'wifi5']) {
+      sent += _parseInt(data['${band}_bytes_sent']);
+      received += _parseInt(data['${band}_bytes_received']);
+    }
+    data['interfaceBytesSentTotal'] = sent.toString();
+    data['interfaceBytesReceivedTotal'] = received.toString();
+    return _TrafficBytes(sent: sent, received: received);
   }
 
   int _parseInt(dynamic value) {
@@ -212,12 +527,17 @@ class _MonitorPageState extends State<MonitorPage> {
       },
       'lastData': routerData,
       'bandwidthFromRouterCounters': {
-        'source': 'ponBytesSent/ponBytesReceived',
-        'note': 'Calculado desde contadores del router entre lecturas; no mide trafico del celular.',
+        'source': routerData['firmwareMode'] == 'NEW'
+            ? 'Suma LAN + WiFi 2.4 GHz + WiFi 5 GHz'
+            : 'ponBytesSent/ponBytesReceived',
+        'note': routerData['firmwareMode'] == 'NEW'
+            ? 'Total observado por interfaces locales; no es contador WAN/GPON y puede incluir trafico interno.'
+            : 'Calculado desde contadores del router entre lecturas; no mide trafico del celular.',
         'currentMbps': currentRate?.toJson(),
         'minTotalMbps': minRate?.toJson(),
         'maxTotalMbps': maxRate?.toJson(),
       },
+      'interfaceCounters': _interfaceCountersForExport(),
       'samples': trafficSamples.map((sample) => sample.toJson()).toList(),
     };
 
@@ -231,18 +551,88 @@ class _MonitorPageState extends State<MonitorPage> {
       ..writeln('Firmware: ${routerData['SoftwareVersion'] ?? 'N/A'}')
       ..writeln('')
       ..writeln('Trafico acumulado del router')
-      ..writeln('Enviado: ${_formatBytes(_parseInt(routerData['ponBytesSent']))}')
-      ..writeln('Recibido: ${_formatBytes(_parseInt(routerData['ponBytesReceived']))}')
+      ..writeln('Fuente: ${_trafficCounterSourceLabel()}')
+      ..writeln('Enviado: ${_formatBytes(_displayTrafficSentBytes())}')
+      ..writeln('Recibido: ${_formatBytes(_displayTrafficReceivedBytes())}')
       ..writeln('')
       ..writeln('Ancho de banda observado desde el router')
       ..writeln('Actual: ${currentRate == null ? 'N/A' : _formatMbps(currentRate!.totalMbps)}')
       ..writeln('Minimo sesion: ${minRate == null ? 'N/A' : _formatMbps(minRate!.totalMbps)}')
       ..writeln('Maximo sesion: ${maxRate == null ? 'N/A' : _formatMbps(maxRate!.totalMbps)}')
       ..writeln('')
+      ..writeln('Contadores por interfaz RP3084+')
+      ..write(_interfaceCountersText())
+      ..writeln('')
       ..writeln('JSON')
       ..writeln(const JsonEncoder.withIndent('  ').convert(report));
 
     await Share.share(buffer.toString(), subject: 'Reporte Monitor GPON $routerIp');
+  }
+
+  Map<String, dynamic> _interfaceCountersForExport() {
+    final counters = <String, dynamic>{};
+    for (var i = 1; i <= 9; i++) {
+      final status = routerData['lan${i}_status'];
+      if (status == null || status.toString().isEmpty) continue;
+      counters['lan$i'] = {
+        'status': status,
+        'speed': routerData['lan${i}_speed'],
+        'sentBytes': routerData['lan${i}_bytes_sent'],
+        'receivedBytes': routerData['lan${i}_bytes_received'],
+      };
+    }
+    for (final band in ['wifi24', 'wifi5']) {
+      if (routerData['${band}_bytes_sent'] == null && routerData['${band}_bytes_received'] == null) continue;
+      counters[band] = {
+        'ssid1': routerData['${band}_ssid_1'],
+        'ssid2': routerData['${band}_ssid_2'],
+        'channel': routerData['${band}_channel'],
+        'standard': routerData['${band}_standard'],
+        'sentBytes': routerData['${band}_bytes_sent'],
+        'receivedBytes': routerData['${band}_bytes_received'],
+      };
+    }
+    return counters;
+  }
+
+  String _interfaceCountersText() {
+    final counters = _interfaceCountersForExport();
+    if (counters.isEmpty) return 'N/A\n';
+    final buffer = StringBuffer();
+    counters.forEach((name, value) {
+      final item = Map<String, dynamic>.from(value as Map);
+      buffer.writeln('$name:');
+      if (item['ssid1'] != null && item['ssid1'].toString().isNotEmpty) {
+        buffer.writeln('  SSID: ${item['ssid1']}');
+      }
+      if (item['channel'] != null && item['channel'].toString().isNotEmpty) {
+        buffer.writeln('  Canal: ${item['channel']}');
+      }
+      if (item['status'] != null) {
+        buffer.writeln('  Estado: ${item['status']} ${item['speed'] ?? ''}'.trimRight());
+      }
+      buffer.writeln('  Enviado: ${_formatBytes(_parseInt(item['sentBytes']))}');
+      buffer.writeln('  Recibido: ${_formatBytes(_parseInt(item['receivedBytes']))}');
+    });
+    return buffer.toString();
+  }
+
+  String _trafficCounterSourceLabel() {
+    return routerData['firmwareMode'] == 'NEW'
+        ? 'Suma de contadores LAN + WiFi 2.4 GHz + WiFi 5 GHz; no es WAN/GPON nativo.'
+        : 'Contadores GPON nativos ponBytesSent/ponBytesReceived.';
+  }
+
+  int _displayTrafficSentBytes() {
+    return routerData['firmwareMode'] == 'NEW'
+        ? _parseInt(routerData['interfaceBytesSentTotal'])
+        : _parseInt(routerData['ponBytesSent']);
+  }
+
+  int _displayTrafficReceivedBytes() {
+    return routerData['firmwareMode'] == 'NEW'
+        ? _parseInt(routerData['interfaceBytesReceivedTotal'])
+        : _parseInt(routerData['ponBytesReceived']);
   }
 
   void _showSettingsDialog() {
@@ -463,30 +853,43 @@ class _MonitorPageState extends State<MonitorPage> {
                 const SizedBox(height: 16),
 
                 _buildSection("TRAFICO GPON", Icons.swap_vert, [
+                  if (routerData['firmwareMode'] == 'NEW')
+                    _buildInfoRow(
+                      "Estado RP3084+",
+                      "Mostrando suma LAN/WiFi",
+                      color: Colors.amber,
+                    ),
                   _buildInfoRow(
                     "Enviado",
-                    _formatBytes(_parseInt(routerData['ponBytesSent'])),
+                    _formatBytes(_displayTrafficSentBytes()),
                     color: Colors.orange,
                   ),
                   _buildInfoRow(
                     "Recibido",
-                    _formatBytes(_parseInt(routerData['ponBytesReceived'])),
+                    _formatBytes(_displayTrafficReceivedBytes()),
                     color: Colors.green,
                   ),
                   _buildInfoRow(
                     "Total",
                     _formatBytes(
-                      _parseInt(routerData['ponBytesSent']) +
-                      _parseInt(routerData['ponBytesReceived']),
+                      _displayTrafficSentBytes() + _displayTrafficReceivedBytes(),
                     ),
                     color: Colors.blue,
                   ),
                 ]),
 
+                if (_hasInterfaceCounters()) ...[
+                  const SizedBox(height: 16),
+                  _buildSection("CONTADORES LAN / WIFI", Icons.device_hub, _buildInterfaceCounterRows()),
+                ],
+
                 const SizedBox(height: 16),
 
                 _buildSection("ANCHO DE BANDA EXPERIMENTAL", Icons.speed, [
-                  _buildInfoRow("Fuente", "Contadores GPON del router"),
+                  _buildInfoRow(
+                    "Fuente",
+                    routerData['firmwareMode'] == 'NEW' ? "Suma LAN/WiFi del router" : "Contadores GPON del router",
+                  ),
                   _buildInfoRow("Modo", "Calculado desde dos lecturas; no es dato nativo"),
                   _buildInfoRow(
                     "Actual total",
@@ -593,6 +996,48 @@ class _MonitorPageState extends State<MonitorPage> {
     );
   }
 
+  bool _hasInterfaceCounters() {
+    if (routerData['wifi24_bytes_sent'] != null || routerData['wifi5_bytes_sent'] != null) return true;
+    for (var i = 1; i <= 9; i++) {
+      if (routerData['lan${i}_status'] != null && routerData['lan${i}_status'].toString().isNotEmpty) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  List<Widget> _buildInterfaceCounterRows() {
+    final rows = <Widget>[];
+    for (var i = 1; i <= 9; i++) {
+      final status = routerData['lan${i}_status']?.toString() ?? '';
+      if (status.isEmpty) continue;
+      final sent = _parseInt(routerData['lan${i}_bytes_sent']);
+      final received = _parseInt(routerData['lan${i}_bytes_received']);
+      if (status != 'Up' && sent == 0 && received == 0) continue;
+      final speed = routerData['lan${i}_speed']?.toString() ?? '';
+      rows.add(_buildInfoRow('LAN $i', '$status ${speed.isEmpty ? '' : '($speed)'}'.trim()));
+      rows.add(_buildInfoRow('  Enviado', _formatBytes(sent), color: Colors.orange));
+      rows.add(_buildInfoRow('  Recibido', _formatBytes(received), color: Colors.green));
+    }
+
+    rows.addAll(_buildWifiCounterRows('wifi24', 'WiFi 2.4 GHz'));
+    rows.addAll(_buildWifiCounterRows('wifi5', 'WiFi 5 GHz'));
+    return rows.isEmpty ? [_buildInfoRow('Contadores', 'N/A')] : rows;
+  }
+
+  List<Widget> _buildWifiCounterRows(String prefix, String label) {
+    final sent = _parseInt(routerData['${prefix}_bytes_sent']);
+    final received = _parseInt(routerData['${prefix}_bytes_received']);
+    final channel = routerData['${prefix}_channel']?.toString() ?? '';
+    final ssid = routerData['${prefix}_ssid_1']?.toString() ?? '';
+    if (sent == 0 && received == 0 && channel.isEmpty && ssid.isEmpty) return [];
+    return [
+      _buildInfoRow(label, ssid.isEmpty ? 'Canal $channel' : '$ssid${channel.isEmpty ? '' : ' / Canal $channel'}'),
+      _buildInfoRow('  Enviado', _formatBytes(sent), color: Colors.orange),
+      _buildInfoRow('  Recibido', _formatBytes(received), color: Colors.green),
+    ];
+  }
+
   Widget _buildInfoRow(String label, String value, {Color? color}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -646,6 +1091,28 @@ class TrafficSample {
         'receivedBytes': receivedBytes,
         'rate': rate?.toJson(),
       };
+}
+
+class _RouterFetchResult {
+  const _RouterFetchResult._({this.data, this.error});
+
+  factory _RouterFetchResult.data(Map<String, dynamic> data) {
+    return _RouterFetchResult._(data: data);
+  }
+
+  factory _RouterFetchResult.error(String error) {
+    return _RouterFetchResult._(error: error);
+  }
+
+  final Map<String, dynamic>? data;
+  final String? error;
+}
+
+class _TrafficBytes {
+  const _TrafficBytes({required this.sent, required this.received});
+
+  final int sent;
+  final int received;
 }
 
 class TrafficRate {

@@ -33,6 +33,8 @@ def get_new_firmware_data(router_ip):
             ["node", helper_path, router_ip, config.get("user", "user"), config.get("password", "user1234")],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=90,
             check=False,
         )

@@ -15,6 +15,7 @@
 | 9 | Verificar scripts PC contra el router actual | Hecho | Se instalo Python 3.12.10 con dependencias minimas y luego se implemento autenticacion web automatizada para RP3084+; `gpon_display.py` y `router_monitor_login.py` ya consultan datos reales del firmware nuevo sin alterar la compatibilidad del flujo antiguo. |
 | 10 | Restaurar lectura de escritorio para firmware RP3084+ | Hecho parcial | El flujo nuevo inicia sesion y recupera datos reales de sistema/estado por helper web con Playwright; los contadores GPON y metricas opticas aun no tienen nodo confirmado en este firmware. |
 | 11 | Buscar consumo total del router en RP3084+ | Hecho parcial | Confirmados contadores reales de `Wireless Status` 5 GHz y valores reales de `Optical Info`; los contadores PON/WAN totales siguen vacios aunque los nodos existen en el catalogo XML. |
+| 12 | Pasar cambios del script PC a la APK | Hecho parcial | APK `1.2.0+3` mantiene GPON real para firmware antiguo y usa WebView RP3084+ para mostrar suma LAN + WiFi 2.4 + WiFi 5 en el item GPON cuando WAN/GPON no esta expuesto. |
 
 ## Cambios Realizados
 
@@ -35,6 +36,8 @@
 | 2026-06-08 | Entorno Windows del usuario | Instalado Python 3.12.10, agregadas rutas de Python al `PATH` de usuario e instaladas dependencias `requests` y `pycryptodome` para ejecutar los scripts PC sin tocar la logica del proyecto. | `winget install --id Python.Python.3.12 --exact --source winget --accept-source-agreements --accept-package-agreements`, verificacion por ruta absoluta y `python --version` con PATH refrescado. | Hecho |
 | 2026-06-08 | `Scripts_PC/gpon_display.py`, `Scripts_PC/router_monitor_login.py`, `Scripts_PC/router_web_client.js`, `Scripts_PC/package.json`, `.gitignore` | Integrado helper web con Playwright para firmware RP3084+ usando el flujo real de `login.html`; mantiene intacto el camino antiguo `/cgi-bin/ajax` y recupera datos reales de sistema en firmware nuevo. | `node router_web_client.js 192.168.1.1 user user1234`, `python gpon_display.py 192.168.1.1`, `python router_monitor_login.py`. | Hecho |
 | 2026-06-08 | `Scripts_PC/router_web_client.js`, `Scripts_PC/gpon_display.py`, `Scripts_PC/router_monitor_login.py` | Agregada extraccion de `Optical Info` y contadores `WiFi 5 GHz` desde las rutas reales del frontend (`#/status/opticalInfo/opticalInfo`, `#/status/wifiStatus/wifiStatus_5g`). | `node router_web_client.js 192.168.1.1 user user1234`, `python gpon_display.py 192.168.1.1`, `python router_monitor_login.py`. | Hecho |
+| 2026-06-08 | `Flutter_App/router_monitor_app/lib/main.dart`, `pubspec.yaml`, `APK/Monitor_GPON_v1.2.0+3-debug.apk` | Portada logica RP3084+ a la APK con WebView: primero intenta GPON antiguo; si falla, autentica contra `login.html` y suma LAN + WiFi 2.4 + WiFi 5 en el item GPON. | `flutter pub get`, `flutter analyze`, `flutter test`, `flutter build apk --debug`. | Hecho |
+| 2026-06-08 | `Scripts_PC/router_web_client.js`, `gpon_display.py`, `router_monitor_login.py`, `gpon_monitor_new.py` | Helper de escritorio ajustado para usar Brave existente en vez de descargar navegador Playwright; captura subprocess en UTF-8 para evitar fallos cp1252. | `node router_web_client.js 192.168.1.1 user user1234`, `cmd /c "echo.|python gpon_display.py 192.168.1.1"`, `cmd /c "echo.|python router_monitor_login.py"`. | Hecho |
 
 ## Errores, Hallazgos Y Soluciones Intentadas
 
@@ -52,6 +55,7 @@
 | 2026-06-08 | El firmware RP3084+ no usa el flujo inferido originalmente (`/fh_api/FHAPIS?ajaxmethod=do_login` con base64), sino el flujo real del navegador. | Captura con navegador automatizado: `POST /fh_api/sign/DO_WEB_LOGIN?...`, `get_device_info` y `get_value_by_xmlnode`; el login exitoso redirige a `main.html`. | Reemplazar el intento AES manual por un helper que reutiliza el flujo web autenticado del router. | Funciono |
 | 2026-06-08 | Los contadores GPON/optica del firmware RP3084+ no quedaron accesibles por los nodos XML confirmados. | `get_xmlnode_js_file` expuso nodos; `get_value_by_xmlnode` devolvio datos reales para uptime/CPU/RAM/modelo/firmware/PON state, pero las rutas candidatas de bytes PON y optica devolvieron `""`. | Conservar la autenticacion funcional y documentar la limitacion mientras se siguen buscando nodos validos. | Pendiente |
 | 2026-06-08 | La UI del router si muestra optica y contadores de `Wireless Status`, pero no aparecio ningun contador total PON/WAN equivalente al firmware antiguo. | Pruebas manuales del frontend con Playwright: `Optical Info` muestra TX/RX/temperatura/voltaje/corriente; `5G Wireless Status` muestra bytes/paquetes 5 GHz; `WAN Status` no muestra bytes y los nodos `Stats.Bytes*` permanecen vacios. | Extraer esos datos visibles desde la UI para mejorar el monitor y seguir dejando la busqueda de consumo total como pendiente. | Hecho parcial |
+| 2026-06-08 | El helper de escritorio dependia del Chromium descargado por Playwright y no debia instalarse Chrome/Chromium adicional en el PC. | Se elimino `C:\Users\informatica\AppData\Local\ms-playwright`; se encontro Brave instalado en `C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe`. | `router_web_client.js` ahora usa navegador Chromium existente o `ROUTER_MONITOR_BROWSER`. | Solucionado |
 
 ## Pruebas Y Builds
 
@@ -82,6 +86,11 @@
 | 2026-06-08 | `python router_monitor_login.py` | Correcto; usa helper web y muestra datos del firmware nuevo en vez del `403` anterior. | Salida de consola | Pendiente mapear bytes GPON/optica reales. |
 | 2026-06-08 | `node router_web_client.js 192.168.1.1 user user1234` tras extraer rutas de UI | Correcto; ahora devuelve tambien `txpower`, `rxpower`, `transceivertemperature`, `supplyvottage`, `biascurrent`, `wifi5_bytes_sent`, `wifi5_bytes_received` y SSIDs/canal 5 GHz. | Salida JSON en consola | Pendiente encontrar contadores GPON totales. |
 | 2026-06-08 | `python gpon_display.py 192.168.1.1` tras extraer `Optical Info` y `5G Wireless Status` | Correcto; muestra consumo WiFi 5 GHz y senal optica reales en RP3084+. | Salida de consola | Contador GPON total sigue en `0` por falta de nodo confirmado. |
+| 2026-06-08 | `node router_web_client.js 192.168.1.1 user user1234` usando Brave existente | Correcto; autentica RP3084+ y devuelve LAN, WiFi 2.4, WiFi 5 y optica sin descargar navegador Playwright. | Salida JSON en consola | Ninguno. |
+| 2026-06-08 | `cmd /c "echo.|python gpon_display.py 192.168.1.1"` | Correcto; script escritorio funcional contra router actual RP3084+. | Salida de consola | Ninguno. |
+| 2026-06-08 | `cmd /c "echo.|python router_monitor_login.py"` | Correcto; script login funcional contra router actual RP3084+. | Salida de consola | Ninguno. |
+| 2026-06-08 | `flutter analyze` y `flutter test` | Correcto, sin issues y tests pasan. | Ninguno | Ninguno. |
+| 2026-06-08 | `flutter build apk --debug` | Correcto. | `APK/Monitor_GPON_v1.2.0+3-debug.apk` de 175628309 bytes | Probar manualmente en Android contra router casa y colegio. |
 
 ## Estado Actual
 
@@ -100,6 +109,8 @@
 - El firmware nuevo RP3084+ ya puede autenticarse desde escritorio mediante el flujo web real del router.
 - `gpon_display.py` y `router_monitor_login.py` vuelven a entregar datos reales de sistema/estado en el router de la casa actualizado.
 - El helper nuevo tambien recupera potencia optica real y contadores reales de trafico WiFi 5 GHz desde la UI del router.
+- APK `1.2.0+3` mantiene lectura GPON real para firmware antiguo y, en RP3084+, muestra en el item GPON la suma de contadores LAN + WiFi 2.4 + WiFi 5 como sustituto identificado.
+- Scripts de escritorio probados funcionales contra el router actual usando Brave instalado, sin descarga local de navegador Playwright.
 
 ### No Funciona / No Verificado
 
@@ -114,3 +125,4 @@
 - Si se desea compatibilidad multi-router real, crear adaptadores por fabricante/modelo con mapeo de campos y endpoints.
 - Mapear en el firmware RP3084+ los nodos reales de bytes GPON y parametros opticos para completar la salida equivalente al firmware antiguo.
 - Seguir buscando si existe una ruta oculta o metodo interno que exponga bytes totales PON/WAN; hasta ahora solo quedaron confirmados WiFi 5 GHz y `Optical Info`.
+- Probar APK `APK\Monitor_GPON_v1.2.0+3-debug.apk` en Android contra router casa/colegio: login WebView RP3084+, primera lectura, segunda lectura para Mbps y exportacion.

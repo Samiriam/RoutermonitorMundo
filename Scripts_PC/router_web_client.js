@@ -1,4 +1,21 @@
 const { chromium } = require('playwright');
+const fs = require('fs');
+
+function findBrowserExecutable() {
+  const candidates = [
+    process.env.ROUTER_MONITOR_BROWSER,
+    'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
+    'C:\\Program Files (x86)\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
+    `${process.env.LOCALAPPDATA}\\BraveSoftware\\Brave-Browser\\Application\\brave.exe`,
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    `${process.env.LOCALAPPDATA}\\Microsoft\\Edge\\Application\\msedge.exe`,
+    `${process.env.LOCALAPPDATA}\\Vivaldi\\Application\\vivaldi.exe`,
+    `${process.env.LOCALAPPDATA}\\Programs\\Opera\\opera.exe`,
+  ].filter(Boolean);
+
+  return candidates.find((candidate) => fs.existsSync(candidate));
+}
 
 function extractMetric(text, label) {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -16,7 +33,12 @@ async function main() {
   const password = process.argv[4] || 'user1234';
   const baseUrl = `http://${routerIp}`;
 
-  const browser = await chromium.launch({ headless: true });
+  const executablePath = findBrowserExecutable();
+  if (!executablePath) {
+    throw new Error('No se encontro navegador Chromium existente. Define ROUTER_MONITOR_BROWSER con la ruta del navegador.');
+  }
+
+  const browser = await chromium.launch({ executablePath, headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
 

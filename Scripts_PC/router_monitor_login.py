@@ -34,6 +34,8 @@ def get_new_firmware_data_via_browser(router_ip, username, password):
         ["node", helper_path, router_ip, username, password],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=90,
         check=False,
     )
