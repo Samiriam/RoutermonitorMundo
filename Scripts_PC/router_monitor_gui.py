@@ -12,6 +12,7 @@ import threading
 from datetime import datetime
 import os
 import json as json_lib
+import subprocess
 
 CONFIG_FILE = "router_config.json"
 
@@ -153,10 +154,47 @@ class RouterMonitorApp:
         try:
             resp = requests.get(url, headers=headers, timeout=10)
             if resp.status_code == 200:
-                return json.loads(resp.text)
+                data = json.loads(resp.text)
+                data["firmwareMode"] = "OLD"
+                return data
         except Exception as e:
-            return {"error": str(e)}
-        return None
+            legacy_error = str(e)
+        else:
+            legacy_error = f"HTTP {resp.status_code}"
+
+        return self.get_new_firmware_data(ip, legacy_error)
+
+    def get_new_firmware_data(self, ip, legacy_error):
+        helper_path = os.path.join(os.path.dirname(__file__), "router_web_client.js")
+        try:
+            result = subprocess.run(
+                ["node", helper_path, ip, self.username.get(), self.password.get()],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=90,
+                check=False,
+            )
+        except Exception as exc:
+            return {"error": f"Endpoint antiguo fallo ({legacy_error}) y helper RP3084+ no disponible: {exc}"}
+
+        output = (result.stdout or "").strip()
+        if not output:
+            error = (result.stderr or "El helper web no devolvio salida").strip()
+            return {"error": f"Endpoint antiguo fallo ({legacy_error}); RP3084+ fallo: {error}"}
+
+        try:
+            parsed = json.loads(output.splitlines()[-1])
+        except Exception:
+            return {"error": f"Endpoint antiguo fallo ({legacy_error}); salida RP3084+ invalida: {output[:200]}"}
+
+        if not parsed.get("success"):
+            return {"error": f"Endpoint antiguo fallo ({legacy_error}); RP3084+ fallo: {parsed.get('error', 'login web fallo')}"}
+
+        data = parsed["data"]
+        data["firmwareMode"] = "NEW"
+        return data
 
     def parse_int(self, value):
         try:
@@ -166,8 +204,7 @@ class RouterMonitorApp:
 
     def record_traffic_sample(self, data):
         now = datetime.now()
-        sent = self.parse_int(data.get('ponBytesSent', 0))
-        recv = self.parse_int(data.get('ponBytesReceived', 0))
+        sent, recv = self.get_display_traffic_bytes(data)
         rate = None
 
         if self.traffic_samples:
@@ -197,6 +234,31 @@ class RouterMonitorApp:
             "rate": rate,
         })
         self.traffic_samples = self.traffic_samples[-500:]
+
+    def get_display_traffic_bytes(self, data):
+        if data.get("firmwareMode") != "NEW":
+            return (
+                self.parse_int(data.get('ponBytesSent', 0)),
+                self.parse_int(data.get('ponBytesReceived', 0)),
+            )
+
+        sent = 0
+        recv = 0
+        for i in range(1, 10):
+            status = str(data.get(f'lan{i}_status', ''))
+            lan_sent = self.parse_int(data.get(f'lan{i}_bytes_sent', 0))
+            lan_recv = self.parse_int(data.get(f'lan{i}_bytes_received', 0))
+            if status == "Up" or lan_sent > 0 or lan_recv > 0:
+                sent += lan_sent
+                recv += lan_recv
+
+        for band in ("wifi24", "wifi5"):
+            sent += self.parse_int(data.get(f'{band}_bytes_sent', 0))
+            recv += self.parse_int(data.get(f'{band}_bytes_received', 0))
+
+        data["interfaceBytesSentTotal"] = str(sent)
+        data["interfaceBytesReceivedTotal"] = str(recv)
+        return sent, recv
 
     def format_bytes(self, bytes_val):
         try:
@@ -266,20 +328,25 @@ class RouterMonitorApp:
             self.record_traffic_sample(data)
 
             uptime = self.parse_int(data.get('uptime', 0))
-            pon_sent = self.parse_int(data.get('ponBytesSent', 0))
-            pon_recv = self.parse_int(data.get('ponBytesReceived', 0))
+            pon_sent, pon_recv = self.get_display_traffic_bytes(data)
 
             self.tree.insert("", "end", values=("=== UPTIME ===", ""))
             self.tree.insert("", "end", values=("  Router activo desde hace", self.format_uptime(uptime)))
             self.tree.insert("", "end", values=("  Segundos totales", self.format_number(uptime)))
 
             self.tree.insert("", "end", values=("=== TRAFICO GPON ===", ""))
+            if data.get("firmwareMode") == "NEW":
+                self.tree.insert("", "end", values=("  Estado RP3084+", "Mostrando suma LAN + WiFi 2.4 + WiFi 5"))
             self.tree.insert("", "end", values=("  Enviado", f"{self.format_bytes(pon_sent)} ({self.format_number(pon_sent)} bytes)"))
             self.tree.insert("", "end", values=("  Recibido", f"{self.format_bytes(pon_recv)} ({self.format_number(pon_recv)} bytes)"))
             self.tree.insert("", "end", values=("  Total", self.format_bytes(pon_sent + pon_recv)))
 
+            if data.get("firmwareMode") == "NEW":
+                self.insert_interface_counters(data)
+
             self.tree.insert("", "end", values=("=== ANCHO DE BANDA EXPERIMENTAL ===", ""))
-            self.tree.insert("", "end", values=("  Fuente", "Contadores GPON del router; no trafico del PC"))
+            source = "Suma LAN/WiFi del router; no WAN/GPON nativo" if data.get("firmwareMode") == "NEW" else "Contadores GPON del router; no trafico del PC"
+            self.tree.insert("", "end", values=("  Fuente", source))
             self.tree.insert("", "end", values=("  Modo", "Calculado desde dos lecturas; no es dato nativo"))
             if self.current_rate:
                 self.tree.insert("", "end", values=("  Actual total", self.format_mbps(self.current_rate["total_mbps"])))
@@ -318,6 +385,34 @@ class RouterMonitorApp:
         except Exception as e:
             self.status_label.config(text=f"Error procesando: {e}", foreground="#F44336")
             self.tree.insert("", "end", values=("Error", str(e)))
+
+    def insert_interface_counters(self, data):
+        self.tree.insert("", "end", values=("=== CONTADORES LAN / WIFI ===", ""))
+        for i in range(1, 10):
+            status = str(data.get(f'lan{i}_status', ''))
+            if not status:
+                continue
+            sent = self.parse_int(data.get(f'lan{i}_bytes_sent', 0))
+            recv = self.parse_int(data.get(f'lan{i}_bytes_received', 0))
+            if status != "Up" and sent == 0 and recv == 0:
+                continue
+            speed = data.get(f'lan{i}_speed', '')
+            self.tree.insert("", "end", values=(f"  LAN {i}", f"{status} {f'({speed})' if speed else ''}".strip()))
+            self.tree.insert("", "end", values=("    Enviado", f"{self.format_bytes(sent)} ({self.format_number(sent)} bytes)"))
+            self.tree.insert("", "end", values=("    Recibido", f"{self.format_bytes(recv)} ({self.format_number(recv)} bytes)"))
+
+        for band, label in (("wifi24", "WiFi 2.4 GHz"), ("wifi5", "WiFi 5 GHz")):
+            sent = self.parse_int(data.get(f'{band}_bytes_sent', 0))
+            recv = self.parse_int(data.get(f'{band}_bytes_received', 0))
+            ssid = data.get(f'{band}_ssid_1', '')
+            channel = data.get(f'{band}_channel', '')
+            if sent == 0 and recv == 0 and not ssid and not channel:
+                continue
+            title = ssid or label
+            suffix = f" / Canal {channel}" if channel else ""
+            self.tree.insert("", "end", values=(f"  {label}", f"{title}{suffix}"))
+            self.tree.insert("", "end", values=("    Enviado", f"{self.format_bytes(sent)} ({self.format_number(sent)} bytes)"))
+            self.tree.insert("", "end", values=("    Recibido", f"{self.format_bytes(recv)} ({self.format_number(recv)} bytes)"))
 
     def toggle_auto(self):
         if self.auto_refresh.get():
@@ -370,7 +465,10 @@ class RouterMonitorApp:
                 f.write(f"Monitor GPON - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"IP: {self.router_ip.get()}\n")
                 f.write(f"Endpoint: {self.api_path.get()} / {self.ajax_method.get()}\n")
-                f.write("Nota: ancho de banda calculado desde contadores del router; no mide trafico del PC.\n")
+                if self.last_data.get("firmwareMode") == "NEW":
+                    f.write("Nota: GPON muestra suma LAN + WiFi 2.4 + WiFi 5; no es WAN/GPON nativo.\n")
+                else:
+                    f.write("Nota: ancho de banda calculado desde contadores GPON del router; no mide trafico del PC.\n")
                 f.write("=" * 60 + "\n\n")
                 for item in self.tree.get_children():
                     values = self.tree.item(item, 'values')
@@ -389,8 +487,8 @@ class RouterMonitorApp:
                 },
                 "last_data": self.last_data,
                 "bandwidth_from_router_counters": {
-                    "source": "ponBytesSent/ponBytesReceived",
-                    "note": "Calculado desde contadores del router entre lecturas; no mide trafico del PC.",
+                    "source": "LAN + WiFi 2.4 + WiFi 5" if self.last_data.get("firmwareMode") == "NEW" else "ponBytesSent/ponBytesReceived",
+                    "note": "Suma por interfaces locales; no es WAN/GPON nativo." if self.last_data.get("firmwareMode") == "NEW" else "Calculado desde contadores del router entre lecturas; no mide trafico del PC.",
                     "current_mbps": self.serialize_rate(self.current_rate),
                     "min_total_mbps": self.serialize_rate(self.min_rate),
                     "max_total_mbps": self.serialize_rate(self.max_rate),

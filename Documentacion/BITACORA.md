@@ -96,6 +96,21 @@
 - Se elimino la carpeta descargada por Playwright en `C:\Users\informatica\AppData\Local\ms-playwright` por preferencia del usuario de no instalar Chrome/Chromium adicional.
 - `router_web_client.js` ahora usa un navegador Chromium existente, encontrado en `C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe`, o la variable `ROUTER_MONITOR_BROWSER` si se quiere indicar otra ruta.
 
+### Fix GUI escritorio 2026-06-08
+
+- Problema observado: la ventana `Monitor GPON - Mundo Chile` mostraba `Error: No se pudo conectar` al presionar `Actualizar`.
+- Causa confirmada: `Scripts_PC/router_monitor_gui.py` seguia usando solo el endpoint antiguo `/cgi-bin/ajax?ajaxmethod=get_base_info`; ese endpoint no responde en firmware RP3084+.
+- Correccion aplicada:
+  - mantiene el endpoint antiguo para routers/firmwares donde GPON nativo sigue disponible;
+  - si el endpoint antiguo falla, ejecuta `router_web_client.js` con usuario/password de la GUI;
+  - muestra en `TRAFICO GPON` la suma LAN + WiFi 2.4 GHz + WiFi 5 GHz para RP3084+;
+  - agrega seccion `CONTADORES LAN / WIFI` en la tabla de la GUI;
+  - exporta la nota correcta segun la fuente de datos.
+- Verificacion:
+  - `python -m py_compile router_monitor_gui.py`: correcto;
+  - prueba oculta con Tk llamando `RouterMonitorApp.get_data()` y `get_display_traffic_bytes()`: devolvio `NEW HG5853SF RP3084` con suma LAN/WiFi enviada/recibida.
+- Pendiente operativo: cerrar la ventana GUI abierta y abrirla de nuevo desde `Monitor_GPON.bat` para cargar el codigo actualizado.
+
 ### Dos firmwares diferentes detectados
 
 | Característica | Router Casa (HG6145F) FW Antiguo | Router Nuevo (RP3084+) |
