@@ -1,0 +1,191 @@
+ESCANEO - 2026-06-06 19:00:22.041867
+Router: 192.168.1.1
+
+ENDPOINTS ACTIVOS:
+
+[get_base_info]
+  sessionid: nWS7bUPs
+  session_valid: 1
+  os_version: Linux (none) 4.1.52 armv7l GNU/Linux
+  compile_time: #1 SMP PREEMPT Wed May 11 10:56:47 CST 2022
+  Enable: 0
+  PowerStatus: 0
+  TXPower: 0
+  RfPower: 0
+  RfOffset: 0
+  lan_port_num: 4
+  usb_port_num: 2
+  voice_port_num: 1
+  wifi_device: 1
+  regSuccTime: 
+  web_port: 80
+  https_web_port: 443
+  uptime: 76215
+  brmac: 68:58:11:1B:B6:C8
+  authStatus: 5
+  isLos: 
+  ponmode: 1
+  fecStatus: 2
+  informstatus: 8
+  connectionrequeststatus: 1
+  tr069ipstatus: 1
+  handlestatus: 0
+  lan_status_1: NoLink
+  lan_status_2: Up
+  lan_status_3: NoLink
+  lan_status_4: NoLink
+  WANAccessType: GPON
+  HardwareVersion: WKE2.094.373A01
+  SoftwareVersion: RP2934
+  Manufacturer: FiberHome
+  ManufacturerOUI: 000AC2
+  SerialNumber: FHTT9B1BB6C8
+  ModelName: HG6145F
+  loid: fiberhome
+  loid_status: 99
+  loid_result: 99
+  usb_status: active
+  cpu_usage: 8
+  mem_total: 524288
+  mem_free: 352272
+  flash_usage: 55
+  loid_name: fiberhome
+  loid_reg_state: 0
+  pon_reg_state: 5
+  httpsEnable: 0
+  ponBytesSent: 2284443494
+  ponBytesReceived: 10274576976
+  ponPacketsSent: 3848580
+  ponPacketsReceived: 8356622
+  txpower: 2.47
+  rxpower: -20.60
+  supplyvottage: 3.35
+  biascurrent: 13.25
+  transceivertemperature: 45.46
+  tr69url: http://10_point_100_point_20_point_83:8080/
+
+[get_wifi_status]
+  session_valid: 0
+
+[get_lan_status]
+  session_valid: 0
+
+[get_firewall_info]
+  session_valid: 0
+
+[get_acs_info]
+  session_valid: 0
+
+
+ENDPOINTS VACIOS:
+  get_device_information
+  get_device_info
+  get_device
+  get_system_info
+  get_system_status
+  get_status
+  get_wifi_info
+  get_wifi_basic
+  get_wifi_config
+  get_wifi_radio
+  get_wifi_radio_info
+  get_wifi_2g
+  get_wifi_5g
+  get_wifi_ap
+  get_wifi_ap_info
+  get_wifi_essid
+  get_wifi_ssid
+  get_wifi_channel
+  get_wifi_power
+  get_wifi_txpower
+  get_wifi_stats
+  get_wifi_iface
+  get_wifi_iface_info
+  get_wlan_info
+  get_wlan_status
+  get_wlan_config
+  get_wireless_info
+  get_wireless_status
+  get_wifi_bssid
+  get_wifi_mac
+  get_wifi_security
+  get_wifi_password
+  get_wifi_mode
+  get_wifi_band
+  get_wifi_clients
+  get_wifi_stations
+  get_network_info
+  get_network_status
+  get_network_config
+  get_lan_info
+  get_lan_config
+  get_lan_ports
+  get_ethernet_info
+  get_ethernet_status
+  get_port_info
+  get_ports_info
+  get_wan_info
+  get_wan_status
+  get_wan_config
+  get_wan_port_info
+  get_wan_speed
+  get_wan_type
+  get_internet_info
+  get_pon_info
+  get_pon_status
+  get_pon_config
+  get_pon_stats
+  get_gpon_info
+  get_gpon_status
+  get_optical_info
+  get_optical_status
+  get_fiber_info
+  get_signal_info
+  get_devices
+  get_device_list
+  get_clients
+  get_client_list
+  get_connected_devices
+  get_hosts
+  get_host_info
+  get_dhcp_info
+  get_dhcp_clients
+  get_arp_table
+  get_stations
+  get_wifi_stations
+  get_associated_devices
+  get_associated_stations
+  get_traffic_info
+  get_traffic_stats
+  get_bandwidth
+  get_data_stats
+  get_port_stats
+  get_interface_stats
+  get_stats
+  get_counters
+  get_bytes
+  get_packets
+  get_system_status
+  get_cpu_info
+  get_memory_info
+  get_mem_info
+  get_processes
+  get_uptime
+  get_version
+  get_firmware
+  get_log
+  get_logs
+  get_log_info
+  get_user_info
+  get_users
+  get_accounts
+  get_admin_info
+  get_security_info
+  get_tr069_info
+  get_tr069_status
+  get_info
+  get_all
+  get_status_all
+  get_diagnostics
+  get_ping
+  get_ping_status

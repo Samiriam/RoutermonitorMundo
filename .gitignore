@@ -1,0 +1,64 @@
+# Archivos temporales Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Archivos Flutter/Dart
+**/.dart_tool/
+**/build/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/.pub-cache/
+**/.pub/
+**/doc/api/
+**/ios/Flutter/.last_build_id
+**/android/.gradle/
+**/android/app/build/
+**/android/build/
+**/android/local.properties
+**/android/key.properties
+
+# Archivos Java/Android
+*.class
+*.jar
+*.war
+*.ear
+.gradle/
+local.properties
+
+# Archivos de log
+*.log
+traffic_log.txt
+router_log_*.txt
+
+# Archivos de backup
+*.bak
+*.tmp
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Archivos especificos del proyecto (logs grandes)
+# Mantener solo archivos clave
+# router_monitor_login.py  # mantener para desarrollo
+# polyfill_con_cryptojs.js  # mantener para referencia
+
+# APKs compilados (regenerar con flutter build apk)
+APK/*.apk
+
+# Cache de Flutter
+Flutter_App/router_monitor_app/.dart_tool/
+Flutter_App/router_monitor_app/build/
+Flutter_App/router_monitor_app/.flutter-plugins
+
+# Archivos de IDE
+.vscode/
+.idea/
+*.iml

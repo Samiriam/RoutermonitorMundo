@@ -1,0 +1,7 @@
+{
+  "ip": "192.168.1.1",
+  "user": "user",
+  "password": "user1234",
+  "api_path": "/cgi-bin/ajax",
+  "ajax_method": "get_base_info"
+}
