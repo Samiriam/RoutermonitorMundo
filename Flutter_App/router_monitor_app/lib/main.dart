@@ -218,7 +218,7 @@ class _MonitorPageState extends State<MonitorPage> {
         Boolean(document.querySelector('#user_name') &&
           document.querySelector('#loginpp') &&
           document.querySelector('#login_btn') &&
-          typeof window.$post === "function")
+          typeof window.\$post === "function")
       ''');
       if (ready.toString().contains('true')) return;
       await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -250,7 +250,7 @@ class _MonitorPageState extends State<MonitorPage> {
     }
 
     final diagnostic = await _webViewDiagnostic(controller);
-    throw Exception('$post no disponible en main.html: $diagnostic');
+      throw Exception('\$post no disponible en main.html: $diagnostic');
   }
 
   Future<String> _webViewDiagnostic(WebViewController controller) async {
@@ -293,10 +293,10 @@ class _MonitorPageState extends State<MonitorPage> {
       setValue(userInput, ${jsonEncode(username)});
       setValue(passInput, ${jsonEncode(password)});
 
-      // Primary: call $post directly (bypasses UI event quirks on Android WebView)
-      if (typeof window.$post === 'function') {
+      // Primary: call router post helper directly (bypasses UI event quirks on Android WebView)
+      if (typeof window.\$post === 'function') {
         try {
-          const result = await window.$post('DO_WEB_LOGIN', {
+          const result = await window.\$post('DO_WEB_LOGIN', {
             user_name: ${jsonEncode(username)},
             loginpp: ${jsonEncode(password)},
             CSRFToken: ''
