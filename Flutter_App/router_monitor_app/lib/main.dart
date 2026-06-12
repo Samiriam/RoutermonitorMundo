@@ -410,14 +410,22 @@ class _MonitorPageState extends State<MonitorPage> {
           }
         });
         if (wifi24Ssids && wifi24Ssids.data && wifi24Ssids.data.length > 0) {
-          const mainSsid = wifi24Ssids.data[0];
-          output.wifi24_bytes_sent = mainSsid.BytesSent || '0';
-          output.wifi24_bytes_received = mainSsid.BytesReceived || '0';
-          output.wifi24_packets_sent = mainSsid.PacketsSent || '0';
-          output.wifi24_packets_received = mainSsid.PacketsReceived || '0';
+          let totalBytesSent = 0;
+          let totalBytesReceived = 0;
+          let totalPacketsSent = 0;
+          let totalPacketsReceived = 0;
           for (let i = 0; i < wifi24Ssids.data.length; i++) {
-            output[`wifi24_ssid_${i + 1}`] = wifi24Ssids.data[i].SSID || '';
+            const ssid = wifi24Ssids.data[i];
+            output[`wifi24_ssid_${i + 1}`] = ssid.SSID || '';
+            totalBytesSent += parseInt(ssid.BytesSent || '0', 10) || 0;
+            totalBytesReceived += parseInt(ssid.BytesReceived || '0', 10) || 0;
+            totalPacketsSent += parseInt(ssid.PacketsSent || '0', 10) || 0;
+            totalPacketsReceived += parseInt(ssid.PacketsReceived || '0', 10) || 0;
           }
+          output.wifi24_bytes_sent = String(totalBytesSent);
+          output.wifi24_bytes_received = String(totalBytesReceived);
+          output.wifi24_packets_sent = String(totalPacketsSent);
+          output.wifi24_packets_received = String(totalPacketsReceived);
         }
 
         try {
@@ -431,14 +439,22 @@ class _MonitorPageState extends State<MonitorPage> {
             }
           });
           if (wifi5Ssids && wifi5Ssids.data && wifi5Ssids.data.length > 0) {
-            const mainSsid = wifi5Ssids.data[0];
-            output.wifi5_bytes_sent = mainSsid.BytesSent || '0';
-            output.wifi5_bytes_received = mainSsid.BytesReceived || '0';
-            output.wifi5_packets_sent = mainSsid.PacketsSent || '0';
-            output.wifi5_packets_received = mainSsid.PacketsReceived || '0';
+            let totalBytesSent = 0;
+            let totalBytesReceived = 0;
+            let totalPacketsSent = 0;
+            let totalPacketsReceived = 0;
             for (let i = 0; i < wifi5Ssids.data.length; i++) {
-              output[`wifi5_ssid_${i + 1}`] = wifi5Ssids.data[i].SSID || '';
+              const ssid = wifi5Ssids.data[i];
+              output[`wifi5_ssid_${i + 1}`] = ssid.SSID || '';
+              totalBytesSent += parseInt(ssid.BytesSent || '0', 10) || 0;
+              totalBytesReceived += parseInt(ssid.BytesReceived || '0', 10) || 0;
+              totalPacketsSent += parseInt(ssid.PacketsSent || '0', 10) || 0;
+              totalPacketsReceived += parseInt(ssid.PacketsReceived || '0', 10) || 0;
             }
+            output.wifi5_bytes_sent = String(totalBytesSent);
+            output.wifi5_bytes_received = String(totalBytesReceived);
+            output.wifi5_packets_sent = String(totalPacketsSent);
+            output.wifi5_packets_received = String(totalPacketsReceived);
           }
         } catch (e) {}
 
