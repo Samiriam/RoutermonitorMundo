@@ -194,6 +194,11 @@
 - Verificacion: `flutter analyze` sin issues, `flutter test` pasa, APK `1.3.2+7` firmada con `CN=Router Monitor`.
 - APK: `APK/Monitor_GPON_v1.3.2+7-debug.apk` (154319350 bytes). Se elimino la intermedia `1.3.1+6`.
 
+### Funcionamiento confirmado en router del colegio (HG5853SF) 2026-08-18
+
+- El usuario confirmo que la APK `1.3.2+7` **funciona en el router del colegio** (HG5853SF, firmware RP3084, XGSPON). El fallo quedó resuelto con la causa raiz del WebView Android (promesas).
+- Queda pendiente: **probar el prototipo en el router de la casa** (HG6145F) para confirmar que el flujo de firmware antiguo (`get_base_info`) y los contadores GPON nativos siguen funcionando igual que antes.
+
 ## Dos firmwares diferentes detectados
 
 | Característica | Router Casa (HG6145F) FW Antiguo | Router Nuevo (RP3084+) |

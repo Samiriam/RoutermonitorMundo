@@ -144,8 +144,8 @@
 
 ### No Funciona / No Verificado
 
-- Pendiente retest manual de la APK `1.3.2+7` en el router del trabajo (HG5853SF) y confirmacion de que el router de casa (HG6145F) sigue funcionando.
-- No se ha probado manualmente en un celular ni contra un router real despues de los cambios.
+- Pendiente retest manual de la APK `1.3.2+7` en el router de la casa (HG6145F): confirmar que el flujo de firmware antiguo (`get_base_info`) y los contadores GPON nativos siguen funcionando (el router del colegio ya fue confirmado funcional).
+- No se ha probado manualmente en un celular contra un router real despues de los cambios.
 - No hay validacion real con routers distintos al HG6145F.
 - Los contadores GPON y metricas opticas del firmware RP3084+ siguen sin nodo XML confirmado; por ahora aparecen vacios o en `0`/`N/A` en el helper nuevo.
 - No se encontro aun un contador total de consumo PON/WAN equivalente al `ponBytesSent/ponBytesReceived` del firmware antiguo.
@@ -160,4 +160,4 @@
 - Reiniciar `Monitor_GPON.bat`/GUI y probar manualmente el boton `Actualizar` en la ventana nueva.
 - Instalar y probar `APK\Monitor_GPON_v1.2.1+4-debug.apk` en Android; si falla, capturar el nuevo diagnostico que incluye `href/title/body` del WebView.
 - Instalar y probar `APK\Monitor_GPON_v1.3.0+5-debug.apk` en el celular contra el router del colegio: primera lectura, segunda lectura para Mbps y exportacion. Si sigue fallando, el diagnostico ahora avisa si es `no se redirigio a main.html` (posible sesion activa de otro dispositivo) o `controles de login no encontrados` (posible pagina de login distinta).
-- Instalar `APK\Monitor_GPON_v1.3.1+6-debug.apk` en el celular y probar en el router del trabajo (HG5853SF) y en el de casa (HG6145F) para confirmar que: (1) en trabajo la consulta completa de datos se entrega tras el login, (2) en casa el flujo de firmware antiguo sigue funcionando igual. Si falla la consulta, el diagnostico nuevo muestra el error JS real con `error/stack`.
+- Instalar `APK\Monitor_GPON_v1.3.2+7-debug.apk` en el celular y probar en el router de la casa (HG6145F): confirmar que el flujo de firmware antiguo (`get_base_info`) y los contadores GPON nativos siguen funcionando (en el router del colegio ya esta confirmado funcional). Si falla la consulta, el diagnostico nuevo muestra la causa con `error/stack`.
