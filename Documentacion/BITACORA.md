@@ -131,7 +131,40 @@
   - `flutter build apk --debug`: correcto.
 - Pendiente: prueba manual en Android contra el router RP3084+.
 
-### Dos firmwares diferentes detectados
+### Fix login APK contra router del colegio (HG5853SF) 2026-08-18
+
+- Problema reportado por el usuario: la APK funciona con el router de la casa (HG6145F, firmware RP3084+) pero no con el del colegio (HG5853SF, firmware RP3084); el desktop funciona con ambos.
+- Causas identificadas en revision de codigo contra `Scripts_PC/_captured_js/login.js`:
+  1. El payload de `DO_WEB_LOGIN` que enviaba la APK era `{user_name, loginpp, CSRFToken}`, pero el `login.js` real del router usa `{yhm, mm}` (claves `yhm` y `mm`); por eso el login directo fallaba y dependia del click del boton.
+  2. El WebView usaba User-Agent movil (`Android 10; Mobile`) mientras el flujo probado del desktop usa navegador de escritorio; el router del colegio puede servir una pagina de login distinta para moviles (el `checkBrowser.js` del router tiene deteccion movil).
+  3. No se limpiaba la sesion previa del router; en el colegio puede quedar una sesion activa que rechaza el login nuevo con `Somebody has already logged in`.
+- Correccion aplicada en `Flutter_App/router_monitor_app/lib/main.dart`:
+  - `DO_WEB_LOGIN` ahora envia `{yhm, mm}` y valida `result==0`, priorizando llamar `window.doLoginRequest()` (la funcion propia del router, igual que el desktop);
+  - User-Agent del WebView cambiado a escritorio Chrome 131;
+  - se limpian cookies con `WebViewCookieManager.clearCookies()` antes de cada login;
+  - se reintenta 1 vez recargando `login.html` limpio si la primera no llega a `main.html`;
+  - selectores de login flexibles (`input[type="password"]`, `button[type="submit"]`, `.el-button--primary`) para tolerar variantes del formulario del colegio.
+- Version Android subida a `1.3.0+5`.
+- Verificacion local:
+  - `flutter analyze`: sin issues;
+  - `flutter test`: todos pasan;
+  - `flutter build apk --debug` con `JAVA_HOME=E:\jdk17-temurin` y `ANDROID_HOME=E:\android-sdk`: correcto.
+- APK generada: `APK/Monitor_GPON_v1.3.0+5-debug.apk` (154318206 bytes).
+- Pendiente: retest en el celular contra el router del colegio. El diagnostico nuevo distingue entre `no se redirigio a main.html` (posible sesion activa de otro dispositivo) y `controles de login no encontrados` (posible pagina distinta).
+
+### Firma estable de APK 2026-08-18
+
+- Problema: al instalar la APK `1.3.0+5` sobre la version anterior instalada en el celular, Android rechazo la actualizacion (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`).
+- Causa: cada maquina genera su propio `debug.keystore`; la APK anterior fue firmada en la maquina original (`informatica`) y la nueva en `LASVIOLETAS-02`, con claves distintas. Android solo permite actualizar sobre una APK firmada con la misma clave.
+- Solucion aplicada (firma estable por proyecto):
+  - Generado `android/app/keystore/router_monitor.keystore` (RSA 2048, alias `router_monitor`, validez 10000 dias) con `keytool`.
+  - Creado `android/key.properties` con las credenciales (ignorado por Git junto con `android/app/keystore/`).
+  - `android/app/build.gradle.kts` ahora define `signingConfigs.routerMonitor` y lo aplica a los buildTypes `debug` y `release`, de modo que todas las APK futuras usen la misma firma.
+- Verificacion: `apksigner verify --print-certs` muestra `CN=Router Monitor` en la APK nueva.
+- APK final: `APK/Monitor_GPON_v1.3.0+5-debug.apk` (154318206 bytes).
+- Nota operativa: respaldar `router_monitor.keystore` y `key.properties`; si se pierden, no se podra actualizar sobre una APK instalada sin desinstalarla primero. Los passwords estan en `android/key.properties`.
+
+## Dos firmwares diferentes detectados
 
 | Característica | Router Casa (HG6145F) FW Antiguo | Router Nuevo (RP3084+) |
 |---|---|---|

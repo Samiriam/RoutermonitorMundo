@@ -23,6 +23,7 @@ ENV/
 **/android/build/
 **/android/local.properties
 **/android/key.properties
+**/android/app/keystore/
 
 # Archivos Java/Android
 *.class

@@ -18,6 +18,8 @@
 | 12 | Pasar cambios del script PC a la APK | Hecho parcial | APK `1.2.0+3` mantiene GPON real para firmware antiguo y usa WebView RP3084+ para mostrar suma LAN + WiFi 2.4 + WiFi 5 en el item GPON cuando WAN/GPON no esta expuesto. |
 | 13 | Corregir GUI escritorio para RP3084+ | Hecho | `router_monitor_gui.py` ahora mantiene endpoint antiguo para firmware viejo y usa `router_web_client.js` cuando falla, mostrando suma LAN + WiFi en el item GPON para RP3084+. |
 | 14 | Corregir timeout de login RP3084+ en APK Android | Pendiente de retest usuario | APK `1.2.1+4` adjunta un WebView oculto real, espera controles de login, usa eventos de input/click mas robustos y deja diagnostico si falla. |
+| 15 | Corregir login APK contra router del colegio (HG5853SF) | Hecho; pendiente retest en colegio | APK `1.3.0+5` corrige payload de `DO_WEB_LOGIN` (`yhm`/`mm` en vez de `user_name`/`loginpp`), usa User-Agent de escritorio (igual al desktop que si funciona), limpia cookies antes de cada login, reintenta una vez con recarga y tolera variantes de selectores del formulario. |
+| 16 | Firma estable de APK (keystore dedicado) | Hecho | Creado keystore `android/app/keystore/router_monitor.keystore` (alias `router_monitor`) y configurado `build.gradle.kts` para firmar debug y release con el mismo. Evita el error `INSTALL_FAILED_UPDATE_INCOMPATIBLE` al actualizar entre APK generadas en maquinas distintas. |
 
 ## Cambios Realizados
 
@@ -42,6 +44,7 @@
 | 2026-06-08 | `Scripts_PC/router_web_client.js`, `gpon_display.py`, `router_monitor_login.py`, `gpon_monitor_new.py` | Helper de escritorio ajustado para usar Brave existente en vez de descargar navegador Playwright; captura subprocess en UTF-8 para evitar fallos cp1252. | `node router_web_client.js 192.168.1.1 user user1234`, `cmd /c "echo.|python gpon_display.py 192.168.1.1"`, `cmd /c "echo.|python router_monitor_login.py"`. | Hecho |
 | 2026-06-08 | `Scripts_PC/router_monitor_gui.py` | Corregida GUI de escritorio: antes solo usaba `/cgi-bin/ajax` y fallaba en RP3084+; ahora cae al helper web, muestra contadores LAN/WiFi y exporta la fuente correcta. | `python -m py_compile router_monitor_gui.py`; prueba oculta con Tk: `NEW HG5853SF RP3084` y suma LAN/WiFi calculada. | Hecho |
 | 2026-06-08 | `Flutter_App/router_monitor_app/lib/main.dart`, `pubspec.yaml`, `APK/Monitor_GPON_v1.2.1+4-debug.apk` | Corregido intento de login RP3084+ en Android: el WebView ahora se monta oculto en la UI, espera controles `#user_name/#loginpp/#login_btn`, simula eventos de input/change/click y amplía diagnostico de timeout. | `flutter analyze`, `flutter test`, `flutter build apk --debug`. | Pendiente de prueba manual en celular |
+| 2026-08-18 | `Flutter_App/router_monitor_app/lib/main.dart`, `pubspec.yaml`, `APK/Monitor_GPON_v1.3.0+5-debug.apk` | Fix APK contra router del colegio HG5853SF: (1) `DO_WEB_LOGIN` ahora envia `{yhm, mm}` y valida `result==0`, priorizando `window.doLoginRequest()` del propio router; (2) User-Agent del WebView cambiado de movil a escritorio Chrome 131 (el desktop que funciona en ambos routers usa navegador de escritorio); (3) se limpian cookies con `WebViewCookieManager` antes de cada login para evitar `Somebody has already logged in`; (4) se reintenta 1 vez recargando `login.html`; (5) selectores de login flexibles (`input[type=password]`, `button[type=submit]`, `.el-button--primary`) para tolerar variantes del formulario. | `flutter analyze` (sin issues), `flutter test` (paso), `flutter build apk --debug` con `JAVA_HOME=E:\jdk17-temurin`. | Pendiente retest en colegio |
 
 ## Errores, Hallazgos Y Soluciones Intentadas
 
@@ -62,6 +65,7 @@
 | 2026-06-08 | El helper de escritorio dependia del Chromium descargado por Playwright y no debia instalarse Chrome/Chromium adicional en el PC. | Se elimino `C:\Users\informatica\AppData\Local\ms-playwright`; se encontro Brave instalado en `C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe`. | `router_web_client.js` ahora usa navegador Chromium existente o `ROUTER_MONITOR_BROWSER`. | Solucionado |
 | 2026-06-08 | La GUI de escritorio mostraba `Error: No se pudo conectar` al presionar Actualizar. | Captura del usuario y revision de codigo: `router_monitor_gui.py` seguia usando solo `/cgi-bin/ajax?ajaxmethod=get_base_info`; ese endpoint falla en RP3084+. | Portar a la GUI el fallback `router_web_client.js` ya probado en scripts CLI. | Solucionado |
 | 2026-06-08 | APK Android mostraba `Firmware antiguo: HTTP 403` y `timeout iniciando sesion RP3084+`. | Captura del usuario en celular; el 403 es esperado en RP3084+, pero el WebView no completaba login. Inferencia tecnica: `WebViewController` no estaba adjunto a un `WebViewWidget` visible/oculto y el click era poco robusto para Android WebView. | Montar WebView oculto 1x1, esperar controles y mejorar eventos de login. | Pendiente de retest usuario |
+| 2026-08-18 | APK funcionaba con router de la casa (HG6145F RP3084+) pero no con el del colegio (HG5853SF RP3084), mientras el desktop funciona con ambos. | Evidencia de usuario + revision de codigo contra `_captured_js/login.js`: el payload de `DO_WEB_LOGIN` que enviaba la APK era `{user_name, loginpp, CSRFToken}`, pero `login.js` real usa `{yhm, mm}`; ademas el WebView usaba User-Agent movil mientras el flujo probado del desktop usa navegador de escritorio; y no se limpiaba la sesion previa del router (`Somebody has already logged in`). | Corregir payload, usar UA de escritorio, limpiar cookies antes de login, reintentar una vez y tolerar variantes de selectores. | Hecho; pendiente retest en colegio |
 
 ## Pruebas Y Builds
 
@@ -101,6 +105,10 @@
 | 2026-06-08 | Prueba oculta Tk de `RouterMonitorApp.get_data()` y `get_display_traffic_bytes()` | Correcto; devolvio `NEW HG5853SF RP3084` y suma LAN/WiFi enviada/recibida. | Salida consola | Reiniciar la GUI abierta para cargar el codigo nuevo. |
 | 2026-06-08 | `flutter analyze` y `flutter test` tras fix WebView Android | Correcto, sin issues y tests pasan. | Ninguno | Ninguno. |
 | 2026-06-08 | `flutter build apk --debug` tras fix WebView Android | Correcto. | `APK/Monitor_GPON_v1.2.1+4-debug.apk` de 154314914 bytes | Probar en celular contra RP3084+. |
+| 2026-08-18 | `flutter analyze` tras fix colegio | Correcto, sin issues. | Ninguno | Ninguno. |
+| 2026-08-18 | `flutter test` tras fix colegio | Correcto, todos los tests pasan. | Ninguno | Ninguno. |
+| 2026-08-18 | `flutter build apk --debug` con `JAVA_HOME=E:\jdk17-temurin` y `ANDROID_HOME=E:\android-sdk` | Correcto. | `APK/Monitor_GPON_v1.3.0+5-debug.apk` de 154318206 bytes | Retest en celular contra router casa y colegio. |
+| 2026-08-18 | Firma estable: `keytool -genkeypair` + config Gradle | Correcto; la APK queda firmada con el keystore dedicado (`CN=Router Monitor`). | `android/app/keystore/router_monitor.keystore`, `android/key.properties`, `android/app/build.gradle.kts`, `APK/Monitor_GPON_v1.3.0+5-debug.apk` (154318206 bytes) | Copiar/instalar la APK firmada y verificar que actualiza sobre la version previa. |
 
 ## Estado Actual
 
@@ -122,9 +130,12 @@
 - APK `1.2.0+3` mantiene lectura GPON real para firmware antiguo y, en RP3084+, muestra en el item GPON la suma de contadores LAN + WiFi 2.4 + WiFi 5 como sustituto identificado.
 - Scripts de escritorio probados funcionales contra el router actual usando Brave instalado, sin descarga local de navegador Playwright.
 - GUI de escritorio corregida para RP3084+; la ventana abierta debe reiniciarse para cargar el cambio.
+- APK `1.3.0+5` corrije el login WebView RP3084+ contra el router del colegio: usa payload real `DO_WEB_LOGIN` (`yhm`/`mm`), User-Agent de escritorio, limpia cookies por login y reintenta una vez con recarga de `login.html`.
+- La APK ahora se firma con un keystore dedicado del proyecto (`android/app/keystore/router_monitor.keystore`), por lo que las actualizaciones futuras se instalan sobre versiones anteriores sin error de firma.
 
 ### No Funciona / No Verificado
 
+- Pendiente retest manual de la APK `1.3.0+5` en el router del colegio (HG5853SF).
 - No se ha probado manualmente en un celular ni contra un router real despues de los cambios.
 - No hay validacion real con routers distintos al HG6145F.
 - Los contadores GPON y metricas opticas del firmware RP3084+ siguen sin nodo XML confirmado; por ahora aparecen vacios o en `0`/`N/A` en el helper nuevo.
@@ -139,3 +150,4 @@
 - Probar APK `APK\Monitor_GPON_v1.2.0+3-debug.apk` en Android contra router casa/colegio: login WebView RP3084+, primera lectura, segunda lectura para Mbps y exportacion.
 - Reiniciar `Monitor_GPON.bat`/GUI y probar manualmente el boton `Actualizar` en la ventana nueva.
 - Instalar y probar `APK\Monitor_GPON_v1.2.1+4-debug.apk` en Android; si falla, capturar el nuevo diagnostico que incluye `href/title/body` del WebView.
+- Instalar y probar `APK\Monitor_GPON_v1.3.0+5-debug.apk` en el celular contra el router del colegio: primera lectura, segunda lectura para Mbps y exportacion. Si sigue fallando, el diagnostico ahora avisa si es `no se redirigio a main.html` (posible sesion activa de otro dispositivo) o `controles de login no encontrados` (posible pagina de login distinta).

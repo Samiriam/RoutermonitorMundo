@@ -145,15 +145,43 @@ class _MonitorPageState extends State<MonitorPage> {
   }
 
   Future<Map<String, dynamic>> _fetchNewFirmwareWithWebView() async {
+    // Limpia la sesion anterior del router (ej: "Somebody has already logged in")
+    // para que el login WebView no sea rechazado por una sesion activa previa.
+    try {
+      final cookieManager = WebViewCookieManager();
+      await cookieManager.clearCookies();
+    } catch (_) {}
+
     final controller = await _ensureRouterWebView();
 
-    await controller.loadRequest(Uri.parse('http://$routerIp/login.html'));
-    await _waitForWebViewReady(controller);
-    await _waitForLoginControls(controller);
+    // Reintenta una vez recargando login.html limpio si la sesion quedo colgada
+    // o si la primera carga no llego a main.html.
+    var lastLoginError = '';
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        await controller.loadRequest(Uri.parse('http://$routerIp/login.html'));
+        await _waitForWebViewReady(controller);
+        await _waitForLoginControls(controller);
 
-    await controller.runJavaScript(_loginScript());
+        await controller.runJavaScript(_loginScript());
 
-    await _waitForWebViewLogin(controller);
+        final loginOk = await _waitForWebViewLogin(controller);
+        if (!loginOk) {
+          lastLoginError = 'no se redirigio a main.html tras el login';
+        } else {
+          lastLoginError = '';
+          break;
+        }
+      } catch (e) {
+        lastLoginError = e.toString().replaceFirst('Exception: ', '');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 1000));
+    }
+
+    if (lastLoginError.isNotEmpty) {
+      final diagnostic = await _webViewDiagnostic(controller);
+      throw Exception('$lastLoginError (intento 2): $diagnostic');
+    }
 
     // Verify $post is truly available before querying
     var hasPost = await controller.runJavaScriptReturningResult('typeof window.\$post === "function"');
@@ -189,8 +217,8 @@ class _MonitorPageState extends State<MonitorPage> {
     final controller = WebViewController();
     await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
     await controller.setUserAgent(
-      'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 '
-      '(KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     );
 
     setState(() {
@@ -212,13 +240,17 @@ class _MonitorPageState extends State<MonitorPage> {
   }
 
   Future<void> _waitForLoginControls(WebViewController controller) async {
-    // Wait for login form controls AND $post framework ($post exists on login page too)
+    // Wait for login form controls AND $post framework ($post exists on login page too).
+    // El router del colegio (HG5853SF) puede servir una pagina de login con
+    // variantes de selectores; se prueban ambos conjuntos antes de rendirse.
     for (var i = 0; i < 60; i++) {
       final ready = await controller.runJavaScriptReturningResult('''
-        Boolean(document.querySelector('#user_name') &&
+        Boolean((document.querySelector('#user_name') &&
           document.querySelector('#loginpp') &&
           document.querySelector('#login_btn') &&
-          typeof window.\$post === "function")
+          typeof window.\$post === "function") ||
+          (document.querySelector('input[type="password"]') &&
+          typeof window.\$post === "function"))
       ''');
       if (ready.toString().contains('true')) return;
       await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -228,7 +260,7 @@ class _MonitorPageState extends State<MonitorPage> {
     throw Exception('controles de login RP3084+ no encontrados: $diagnostic');
   }
 
-  Future<void> _waitForWebViewLogin(WebViewController controller) async {
+  Future<bool> _waitForWebViewLogin(WebViewController controller) async {
     // Wait for redirect to main.html after login
     for (var i = 0; i < 90; i++) {
       final href = await controller.runJavaScriptReturningResult('location.href');
@@ -237,20 +269,16 @@ class _MonitorPageState extends State<MonitorPage> {
     }
 
     final href = (await controller.runJavaScriptReturningResult('location.href')).toString();
-    if (!href.contains('main.html')) {
-      final diagnostic = await _webViewDiagnostic(controller);
-      throw Exception('no se redirigio a main.html (sesion activa? credenciales?): $diagnostic');
-    }
+    if (!href.contains('main.html')) return false;
 
     // Wait for $post to be available on main.html (JS framework loads after redirect)
     for (var i = 0; i < 40; i++) {
       final hasPost = await controller.runJavaScriptReturningResult('typeof window.\$post === "function"');
-      if (hasPost.toString().contains('true')) return;
+      if (hasPost.toString().contains('true')) return true;
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
 
-    final diagnostic = await _webViewDiagnostic(controller);
-      throw Exception('\$post no disponible en main.html: $diagnostic');
+    return false;
   }
 
   Future<String> _webViewDiagnostic(WebViewController controller) async {
@@ -270,9 +298,13 @@ class _MonitorPageState extends State<MonitorPage> {
 
   String _loginScript() => '''
     (async () => {
-      const userInput = document.querySelector('#user_name');
-      const passInput = document.querySelector('#loginpp');
-      const loginButton = document.querySelector('#login_btn');
+      const userInput = document.querySelector('#user_name') ||
+        document.querySelector('input[type="text"]');
+      const passInput = document.querySelector('#loginpp') ||
+        document.querySelector('input[type="password"]');
+      const loginButton = document.querySelector('#login_btn') ||
+        document.querySelector('button[type="submit"]') ||
+        document.querySelector('.el-button--primary');
       if (!userInput || !passInput || !loginButton) {
         throw new Error('No se encontraron controles de login RP3084+');
       }
@@ -293,16 +325,23 @@ class _MonitorPageState extends State<MonitorPage> {
       setValue(userInput, ${jsonEncode(username)});
       setValue(passInput, ${jsonEncode(password)});
 
-      // Primary: call router post helper directly (bypasses UI event quirks on Android WebView)
+      // Primary: use the router's own doLoginRequest() (reads the inputs above and
+      // calls \$post('DO_WEB_LOGIN', {yhm, mm}), redirecting to main.html on result==0).
+      if (typeof window.doLoginRequest === 'function') {
+        try {
+          window.doLoginRequest();
+          return;
+        } catch (e) {}
+      }
+
+      // Secondary: call router post helper directly with the exact payload login.js uses.
       if (typeof window.\$post === 'function') {
         try {
           const result = await window.\$post('DO_WEB_LOGIN', {
-            user_name: ${jsonEncode(username)},
-            loginpp: ${jsonEncode(password)},
-            CSRFToken: ''
+            yhm: ${jsonEncode(username)},
+            mm: ${jsonEncode(password)}
           });
-          // DO_WEB_LOGIN returns {sessionid:"..."} on success
-          if (result && result.sessionid) {
+          if (result && (result.result === 0 || result.result === '0')) {
             window.location.href = '/main.html';
             return;
           }
