@@ -21,6 +21,7 @@
 | 15 | Corregir login APK contra router del colegio (HG5853SF) | Hecho; pendiente retest en colegio | APK `1.3.0+5` corrige payload de `DO_WEB_LOGIN` (`yhm`/`mm` en vez de `user_name`/`loginpp`), usa User-Agent de escritorio (igual al desktop que si funciona), limpia cookies antes de cada login, reintenta una vez con recarga y tolera variantes de selectores del formulario. |
 | 16 | Firma estable de APK (keystore dedicado) | Hecho | Creado keystore `android/app/keystore/router_monitor.keystore` (alias `router_monitor`) y configurado `build.gradle.kts` para firmar debug y release con el mismo. Evita el error `INSTALL_FAILED_UPDATE_INCOMPATIBLE` al actualizar entre APK generadas en maquinas distintas. |
 | 17 | Corregir consulta de datos APK tras login en router del trabajo (HG5853SF) | Hecho; pendiente retest en trabajo | APK `1.3.1+6`: el login WebView ya llegaba a main.html, pero la consulta `$post` fallaba por ejecutarse demasiado pronto. Se agrego espera de 2s post-login (igual que el desktop), reintento de la consulta recargando main.html sin re-loguear, y diagnostico que captura el error JS real (message/name/stack). Se preservo intacto el flujo de firmware antiguo (`get_base_info`) que funciona en casa. |
+| 18 | Fix causa raiz: WebView Android no espera promesas en la consulta | Hecho; pendiente retest en trabajo | APK `1.3.2+7`: diagnosticado con navegador real (Playwright/Brave) contra el router del trabajo que `$post` y `get_device_info` SI funcionan; el fallo era que `runJavaScriptReturningResult` de Android WebView no resuelve un IIFE async (devuelve `{}`/null). Ahora el script asigna el resultado a `window.__routerMonitorResult` y Dart hace polling sincrono hasta que aparece `success`. |
 
 ## Cambios Realizados
 
@@ -113,6 +114,8 @@
 | 2026-08-18 | Retest usuario APK `1.3.0+5` en router del trabajo | Login llega a main.html, pero consulta falla con `fallo en login web` (error de datos vacio). | Agregar espera post-login (2s), reintento de consulta y mejor captura de error JS. | Hecho en `1.3.1+6`; pendiente retest |
 | 2026-08-18 | `flutter analyze` y `flutter test` tras fix de consulta | Correcto; sin issues y tests pasan. | Ninguno | Ninguno. |
 | 2026-08-18 | `flutter build apk --debug` con firma estable tras fix de consulta | Correcto. | `APK/Monitor_GPON_v1.3.1+6-debug.apk` de 154318998 bytes, misma firma (`CN=Router Monitor`) que la `1.3.0+5` | Retest en trabajo y verificar que no se rompe casa. |
+| 2026-08-18 | Diagnostico con Playwright/Brave contra router del trabajo | Correcto: `$post` es function, `get_device_info` devuelve HG5853SF y todos los contadores. Prueba del script exacto de la APK via `page.evaluate`: success true con datos completos. | Ninguno | El router del trabajo NO es el problema; el fallo era el WebView Android. |
+| 2026-08-18 | `flutter analyze`, `flutter test`, `flutter build apk --debug` tras fix de promesa WebView | Correcto; sin issues, tests pasan, APK compilada. | `APK/Monitor_GPON_v1.3.2+7-debug.apk` de 154319350 bytes, misma firma | Retest en trabajo. |
 
 ## Estado Actual
 
@@ -137,10 +140,11 @@
 - APK `1.3.0+5` corrije el login WebView RP3084+ contra el router del colegio: usa payload real `DO_WEB_LOGIN` (`yhm`/`mm`), User-Agent de escritorio, limpia cookies por login y reintenta una vez con recarga de `login.html`.
 - La APK ahora se firma con un keystore dedicado del proyecto (`android/app/keystore/router_monitor.keystore`), por lo que las actualizaciones futuras se instalan sobre versiones anteriores sin error de firma.
 - APK `1.3.1+6` agrega espera de 2s post-login y reintento de la consulta de datos en firmware RP3084+ (router del trabajo), sin tocar el flujo de firmware antiguo que funciona en casa.
+- APK `1.3.2+7` corrige la causa raiz: el WebView de Android no resuelve promesas en `runJavaScriptReturningResult`; la consulta ahora escribe en `window.__routerMonitorResult` y Dart la lee por polling. Verificado contra el router real del trabajo con navegador de escritorio que el script de consulta devuelve todos los datos.
 
 ### No Funciona / No Verificado
 
-- Pendiente retest manual de la APK `1.3.1+6` en el router del trabajo (HG5853SF): login ya llega a main.html; falta confirmar que la consulta de datos completa se entrega.
+- Pendiente retest manual de la APK `1.3.2+7` en el router del trabajo (HG5853SF) y confirmacion de que el router de casa (HG6145F) sigue funcionando.
 - No se ha probado manualmente en un celular ni contra un router real despues de los cambios.
 - No hay validacion real con routers distintos al HG6145F.
 - Los contadores GPON y metricas opticas del firmware RP3084+ siguen sin nodo XML confirmado; por ahora aparecen vacios o en `0`/`N/A` en el helper nuevo.

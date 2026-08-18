@@ -180,6 +180,20 @@
 - Verificacion local: `flutter analyze` sin issues, `flutter test` pasa, `flutter build apk --debug` correcto con firma estable (`CN=Router Monitor`).
 - APK: `APK/Monitor_GPON_v1.3.1+6-debug.apk` (154318998 bytes).
 
+### Diagnostico con navegador real y causa raiz del WebView Android 2026-08-18
+
+- El retest de `1.3.0+5` en el router del trabajo dio `fallo en login web` (sin detalle). Con `1.3.1+6` el mensaje cambio a `fallo en consulta de datos RP3084+ (sin detalle) tras login OK`.
+- Para descartar el router, se instrumento con Playwright usando el mismo navegador Brave del helper de escritorio (`Scripts_PC/_debug_apk_flow.js` y `_debug_query_script.js`):
+  - `typeof window.$post` = `function` (la funcion SI existe);
+  - `$post('get_device_info', null, 'nocheck')` devuelve datos reales del HG5853SF (port_num 5, pon_mode 5 XGSPON, devicetype HG5853SF, firmware RP3084);
+  - al ejecutar el script de consulta EXACTO de la APK con `page.evaluate`, devuelve `success:true` con todos los contadores (LAN, WiFi 2.4/5, optica, uptime, CPU, RAM).
+- Conclusion: el router del trabajo NO es el problema; el flujo de datos funciona con un navegador de escritorio.
+- Causa raiz real: el WebView de Android (via `runJavaScriptReturningResult` / `evaluateJavascript`) NO resuelve promesas. El script `_newFirmwareQueryScript` es un IIFE `async` que devuelve `Promise<JSON>`; Android lo serializa como `{}`/null y por eso `decoded['error']` llega vacio (`sin detalle`).
+- Fix aplicado (APK `1.3.2+7`): el script ahora escribe el JSON en `window.__routerMonitorResult` (patron sincrono), se ejecuta con `runJavaScript` (fire-and-forget) y Dart hace polling con `runJavaScriptReturningResult` hasta que el resultado contiene `success`.
+- El login WebView ya usaba este patron (polling de `location.href`), por eso el login funcionaba pero la consulta no.
+- Verificacion: `flutter analyze` sin issues, `flutter test` pasa, APK `1.3.2+7` firmada con `CN=Router Monitor`.
+- APK: `APK/Monitor_GPON_v1.3.2+7-debug.apk` (154319350 bytes). Se elimino la intermedia `1.3.1+6`.
+
 ## Dos firmwares diferentes detectados
 
 | Característica | Router Casa (HG6145F) FW Antiguo | Router Nuevo (RP3084+) |

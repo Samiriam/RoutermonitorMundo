@@ -202,11 +202,22 @@ class _MonitorPageState extends State<MonitorPage> {
       }
     }
 
-    // Consulta de datos con reintento: si el framework aun no esta listo, se
-    // recarga main.html (sin re-loguear) y se reintenta una vez.
+    // Consulta de datos con reintento. IMPORTANTE: el script asigna el resultado a
+    // window.__routerMonitorResult (patron sincrono) porque runJavaScriptReturningResult
+    // de Android WebView NO espera promesas: un IIFE async se serializa como "{}" o null.
     var lastQueryError = '';
     for (var attempt = 0; attempt < 2; attempt++) {
-      final raw = await controller.runJavaScriptReturningResult(_newFirmwareQueryScript());
+      await controller.runJavaScript('window.__routerMonitorResult = null;');
+      await controller.runJavaScript(_newFirmwareQueryScript());
+
+      // Poll sincrono hasta que el script asigne el resultado.
+      var raw = '';
+      for (var i = 0; i < 40; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        raw = (await controller.runJavaScriptReturningResult('window.__routerMonitorResult')).toString();
+        if (raw.contains('success')) break;
+      }
+
       final decoded = _decodeWebViewJson(raw);
       if (decoded is Map<String, dynamic> && decoded['success'] == true) {
         final data = Map<String, dynamic>.from(decoded['data'] as Map);
@@ -216,7 +227,7 @@ class _MonitorPageState extends State<MonitorPage> {
       if (decoded is Map<String, dynamic>) {
         lastQueryError = decoded['error']?.toString() ?? 'sin detalle';
       } else {
-        lastQueryError = 'respuesta invalida del WebView';
+        lastQueryError = 'respuesta invalida o vacia del WebView';
       }
       if (attempt == 0) {
         await controller.loadRequest(Uri.parse('http://$routerIp/main.html'));
@@ -586,11 +597,11 @@ class _MonitorPageState extends State<MonitorPage> {
         }
 
         output.NOTA = 'Firmware RP3084+ autenticado via WebView. Contadores por LAN/WiFi; total PON no expuesto.';
-        return JSON.stringify({ success: true, data: output });
+        window.__routerMonitorResult = JSON.stringify({ success: true, data: output });
       } catch (error) {
         const detail = (error && (error.message || error.name || String(error))) || 'sin detalle';
         const stack = (error && error.stack) || '';
-        return JSON.stringify({ success: false, error: detail, stack: stack.slice(0, 400) });
+        window.__routerMonitorResult = JSON.stringify({ success: false, error: detail, stack: stack.slice(0, 400) });
       }
     })();
   ''';
