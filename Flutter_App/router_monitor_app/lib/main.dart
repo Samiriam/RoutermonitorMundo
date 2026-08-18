@@ -183,6 +183,11 @@ class _MonitorPageState extends State<MonitorPage> {
       throw Exception('$lastLoginError (intento 2): $diagnostic');
     }
 
+    // Espera de estabilizacion del framework main.html (el desktop espera 2s
+    // en router_web_client.js antes de consultar). Si se consulta antes, el
+    // router del colegio puede rechazar la llamada por sesion aun no activa.
+    await Future<void>.delayed(const Duration(seconds: 2));
+
     // Verify $post is truly available before querying
     var hasPost = await controller.runJavaScriptReturningResult('typeof window.\$post === "function"');
     if (!hasPost.toString().contains('true')) {
@@ -197,18 +202,31 @@ class _MonitorPageState extends State<MonitorPage> {
       }
     }
 
-    final raw = await controller.runJavaScriptReturningResult(_newFirmwareQueryScript());
-    final decoded = _decodeWebViewJson(raw);
-    if (decoded is! Map<String, dynamic>) {
-      throw Exception('respuesta invalida del WebView');
-    }
-    if (decoded['success'] != true) {
-      throw Exception(decoded['error']?.toString() ?? 'fallo login web');
+    // Consulta de datos con reintento: si el framework aun no esta listo, se
+    // recarga main.html (sin re-loguear) y se reintenta una vez.
+    var lastQueryError = '';
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final raw = await controller.runJavaScriptReturningResult(_newFirmwareQueryScript());
+      final decoded = _decodeWebViewJson(raw);
+      if (decoded is Map<String, dynamic> && decoded['success'] == true) {
+        final data = Map<String, dynamic>.from(decoded['data'] as Map);
+        data['firmwareMode'] = 'NEW';
+        return data;
+      }
+      if (decoded is Map<String, dynamic>) {
+        lastQueryError = decoded['error']?.toString() ?? 'sin detalle';
+      } else {
+        lastQueryError = 'respuesta invalida del WebView';
+      }
+      if (attempt == 0) {
+        await controller.loadRequest(Uri.parse('http://$routerIp/main.html'));
+        await _waitForWebViewReady(controller);
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
     }
 
-    final data = Map<String, dynamic>.from(decoded['data'] as Map);
-    data['firmwareMode'] = 'NEW';
-    return data;
+    final diagnostic = await _webViewDiagnostic(controller);
+    throw Exception('fallo en consulta de datos RP3084+ ($lastQueryError) tras login OK: $diagnostic');
   }
 
   Future<WebViewController> _ensureRouterWebView() async {
@@ -570,7 +588,9 @@ class _MonitorPageState extends State<MonitorPage> {
         output.NOTA = 'Firmware RP3084+ autenticado via WebView. Contadores por LAN/WiFi; total PON no expuesto.';
         return JSON.stringify({ success: true, data: output });
       } catch (error) {
-        return JSON.stringify({ success: false, error: error.message });
+        const detail = (error && (error.message || error.name || String(error))) || 'sin detalle';
+        const stack = (error && error.stack) || '';
+        return JSON.stringify({ success: false, error: detail, stack: stack.slice(0, 400) });
       }
     })();
   ''';

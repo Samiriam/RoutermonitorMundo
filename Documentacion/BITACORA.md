@@ -164,6 +164,22 @@
 - APK final: `APK/Monitor_GPON_v1.3.0+5-debug.apk` (154318206 bytes).
 - Nota operativa: respaldar `router_monitor.keystore` y `key.properties`; si se pierden, no se podra actualizar sobre una APK instalada sin desinstalarla primero. Los passwords estan en `android/key.properties`.
 
+### Retest en router del trabajo y fix de consulta 2026-08-18
+
+- Usuario reporto retest de la APK `1.3.0+5` en el router del trabajo (HG5853SF):
+  - `No se pudo consultar el router`
+  - `Causa: Firmware antiguo - HTTP 403 (Prohibido)` (esperado en RP3084+, el endpoint viejo no existe)
+  - `Excepcion: fallo en login web`
+- Interpretacion clave: el mensaje `fallo en login web` corresponde al fallback de la consulta de datos (`decoded['error']` llego vacio), NO al login. Es decir, el login WebView **ya llego a main.html** con la APK `1.3.0+5`; lo que fallaba era la llamada `$post` de datos inmediatamente despues.
+- Diferencia con el desktop: `router_web_client.js` espera `waitForTimeout(2000)` despues de `main.html` antes de consultar (`page.waitForURL` + 2s). La APK consultaba de inmediato.
+- Correccion en `main.dart` (APK `1.3.1+6`):
+  - espera de 2s post-login antes de la primera consulta;
+  - la consulta de datos ahora reintenta 1 vez recargando `main.html` (sin re-loguear) si el framework no estaba listo;
+  - el script de consulta captura `error.message`/`error.name`/`stack` para que el diagnostico muestre la causa real.
+- Importante: la ruta de firmware antiguo (`/cgi-bin/ajax?ajaxmethod=get_base_info`) para el router de casa (HG6145F) no fue modificada en ninguna de estas iteraciones; el flujo de casa sigue intacto.
+- Verificacion local: `flutter analyze` sin issues, `flutter test` pasa, `flutter build apk --debug` correcto con firma estable (`CN=Router Monitor`).
+- APK: `APK/Monitor_GPON_v1.3.1+6-debug.apk` (154318998 bytes).
+
 ## Dos firmwares diferentes detectados
 
 | Característica | Router Casa (HG6145F) FW Antiguo | Router Nuevo (RP3084+) |

@@ -20,6 +20,7 @@
 | 14 | Corregir timeout de login RP3084+ en APK Android | Pendiente de retest usuario | APK `1.2.1+4` adjunta un WebView oculto real, espera controles de login, usa eventos de input/click mas robustos y deja diagnostico si falla. |
 | 15 | Corregir login APK contra router del colegio (HG5853SF) | Hecho; pendiente retest en colegio | APK `1.3.0+5` corrige payload de `DO_WEB_LOGIN` (`yhm`/`mm` en vez de `user_name`/`loginpp`), usa User-Agent de escritorio (igual al desktop que si funciona), limpia cookies antes de cada login, reintenta una vez con recarga y tolera variantes de selectores del formulario. |
 | 16 | Firma estable de APK (keystore dedicado) | Hecho | Creado keystore `android/app/keystore/router_monitor.keystore` (alias `router_monitor`) y configurado `build.gradle.kts` para firmar debug y release con el mismo. Evita el error `INSTALL_FAILED_UPDATE_INCOMPATIBLE` al actualizar entre APK generadas en maquinas distintas. |
+| 17 | Corregir consulta de datos APK tras login en router del trabajo (HG5853SF) | Hecho; pendiente retest en trabajo | APK `1.3.1+6`: el login WebView ya llegaba a main.html, pero la consulta `$post` fallaba por ejecutarse demasiado pronto. Se agrego espera de 2s post-login (igual que el desktop), reintento de la consulta recargando main.html sin re-loguear, y diagnostico que captura el error JS real (message/name/stack). Se preservo intacto el flujo de firmware antiguo (`get_base_info`) que funciona en casa. |
 
 ## Cambios Realizados
 
@@ -109,6 +110,9 @@
 | 2026-08-18 | `flutter test` tras fix colegio | Correcto, todos los tests pasan. | Ninguno | Ninguno. |
 | 2026-08-18 | `flutter build apk --debug` con `JAVA_HOME=E:\jdk17-temurin` y `ANDROID_HOME=E:\android-sdk` | Correcto. | `APK/Monitor_GPON_v1.3.0+5-debug.apk` de 154318206 bytes | Retest en celular contra router casa y colegio. |
 | 2026-08-18 | Firma estable: `keytool -genkeypair` + config Gradle | Correcto; la APK queda firmada con el keystore dedicado (`CN=Router Monitor`). | `android/app/keystore/router_monitor.keystore`, `android/key.properties`, `android/app/build.gradle.kts`, `APK/Monitor_GPON_v1.3.0+5-debug.apk` (154318206 bytes) | Copiar/instalar la APK firmada y verificar que actualiza sobre la version previa. |
+| 2026-08-18 | Retest usuario APK `1.3.0+5` en router del trabajo | Login llega a main.html, pero consulta falla con `fallo en login web` (error de datos vacio). | Agregar espera post-login (2s), reintento de consulta y mejor captura de error JS. | Hecho en `1.3.1+6`; pendiente retest |
+| 2026-08-18 | `flutter analyze` y `flutter test` tras fix de consulta | Correcto; sin issues y tests pasan. | Ninguno | Ninguno. |
+| 2026-08-18 | `flutter build apk --debug` con firma estable tras fix de consulta | Correcto. | `APK/Monitor_GPON_v1.3.1+6-debug.apk` de 154318998 bytes, misma firma (`CN=Router Monitor`) que la `1.3.0+5` | Retest en trabajo y verificar que no se rompe casa. |
 
 ## Estado Actual
 
@@ -132,10 +136,11 @@
 - GUI de escritorio corregida para RP3084+; la ventana abierta debe reiniciarse para cargar el cambio.
 - APK `1.3.0+5` corrije el login WebView RP3084+ contra el router del colegio: usa payload real `DO_WEB_LOGIN` (`yhm`/`mm`), User-Agent de escritorio, limpia cookies por login y reintenta una vez con recarga de `login.html`.
 - La APK ahora se firma con un keystore dedicado del proyecto (`android/app/keystore/router_monitor.keystore`), por lo que las actualizaciones futuras se instalan sobre versiones anteriores sin error de firma.
+- APK `1.3.1+6` agrega espera de 2s post-login y reintento de la consulta de datos en firmware RP3084+ (router del trabajo), sin tocar el flujo de firmware antiguo que funciona en casa.
 
 ### No Funciona / No Verificado
 
-- Pendiente retest manual de la APK `1.3.0+5` en el router del colegio (HG5853SF).
+- Pendiente retest manual de la APK `1.3.1+6` en el router del trabajo (HG5853SF): login ya llega a main.html; falta confirmar que la consulta de datos completa se entrega.
 - No se ha probado manualmente en un celular ni contra un router real despues de los cambios.
 - No hay validacion real con routers distintos al HG6145F.
 - Los contadores GPON y metricas opticas del firmware RP3084+ siguen sin nodo XML confirmado; por ahora aparecen vacios o en `0`/`N/A` en el helper nuevo.
@@ -151,3 +156,4 @@
 - Reiniciar `Monitor_GPON.bat`/GUI y probar manualmente el boton `Actualizar` en la ventana nueva.
 - Instalar y probar `APK\Monitor_GPON_v1.2.1+4-debug.apk` en Android; si falla, capturar el nuevo diagnostico que incluye `href/title/body` del WebView.
 - Instalar y probar `APK\Monitor_GPON_v1.3.0+5-debug.apk` en el celular contra el router del colegio: primera lectura, segunda lectura para Mbps y exportacion. Si sigue fallando, el diagnostico ahora avisa si es `no se redirigio a main.html` (posible sesion activa de otro dispositivo) o `controles de login no encontrados` (posible pagina de login distinta).
+- Instalar `APK\Monitor_GPON_v1.3.1+6-debug.apk` en el celular y probar en el router del trabajo (HG5853SF) y en el de casa (HG6145F) para confirmar que: (1) en trabajo la consulta completa de datos se entrega tras el login, (2) en casa el flujo de firmware antiguo sigue funcionando igual. Si falla la consulta, el diagnostico nuevo muestra el error JS real con `error/stack`.
