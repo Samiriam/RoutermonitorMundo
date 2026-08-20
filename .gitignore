@@ -71,3 +71,9 @@ Flutter_App/router_monitor_app/.flutter-plugins
 Scripts_PC/_captured_js/
 Scripts_PC/_capture_*
 !Scripts_PC/_debug_capture_login_flow.js
+
+# Artefactos de build PyInstaller (se regeneran; conservar dist_pc/ y *.spec)
+Scripts_PC/build/
+Scripts_PC/dist/
+Scripts_PC/__pycache__/
+

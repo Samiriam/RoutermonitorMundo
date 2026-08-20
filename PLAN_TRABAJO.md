@@ -22,6 +22,8 @@
 | 16 | Firma estable de APK (keystore dedicado) | Hecho | Creado keystore `android/app/keystore/router_monitor.keystore` (alias `router_monitor`) y configurado `build.gradle.kts` para firmar debug y release con el mismo. Evita el error `INSTALL_FAILED_UPDATE_INCOMPATIBLE` al actualizar entre APK generadas en maquinas distintas. |
 | 17 | Corregir consulta de datos APK tras login en router del trabajo (HG5853SF) | Hecho; pendiente retest en trabajo | APK `1.3.1+6`: el login WebView ya llegaba a main.html, pero la consulta `$post` fallaba por ejecutarse demasiado pronto. Se agrego espera de 2s post-login (igual que el desktop), reintento de la consulta recargando main.html sin re-loguear, y diagnostico que captura el error JS real (message/name/stack). Se preservo intacto el flujo de firmware antiguo (`get_base_info`) que funciona en casa. |
 | 18 | Fix causa raiz: WebView Android no espera promesas en la consulta | Hecho; pendiente retest en trabajo | APK `1.3.2+7`: diagnosticado con navegador real (Playwright/Brave) contra el router del trabajo que `$post` y `get_device_info` SI funcionan; el fallo era que `runJavaScriptReturningResult` de Android WebView no resuelve un IIFE async (devuelve `{}`/null). Ahora el script asigna el resultado a `window.__routerMonitorResult` y Dart hace polling sincrono hasta que aparece `success`. |
+| 19 | API APK funcional en ambos routers | Hecho | Confirmado por el usuario: la APK `1.3.2+7` funciona en casa (HG6145F, firmware antiguo, GPON nativo) y en el colegio (HG5853SF, RP3084+). |
+| 20 | GUI escritorio mejorada esteticamente + instalador | Hecho | `router_monitor_gui.py` rediseñado con tema oscuro moderno (paleta, secciones coloreadas, encabezado) preservando toda la logica de red/exportacion. Generado instalador onefile `dist_pc/Monitor_GPON.exe` con PyInstaller. Se incluye helper `router_web_client.js` y batch de requisitos. |
 
 ## Cambios Realizados
 
@@ -141,11 +143,14 @@
 - La APK ahora se firma con un keystore dedicado del proyecto (`android/app/keystore/router_monitor.keystore`), por lo que las actualizaciones futuras se instalan sobre versiones anteriores sin error de firma.
 - APK `1.3.1+6` agrega espera de 2s post-login y reintento de la consulta de datos en firmware RP3084+ (router del trabajo), sin tocar el flujo de firmware antiguo que funciona en casa.
 - APK `1.3.2+7` corrige la causa raiz: el WebView de Android no resuelve promesas en `runJavaScriptReturningResult`; la consulta ahora escribe en `window.__routerMonitorResult` y Dart la lee por polling. Verificado contra el router real del trabajo con navegador de escritorio que el script de consulta devuelve todos los datos.
+- La APK `1.3.2+7` esta confirmada funcional en casa y colegio.
+- `router_monitor_gui.py` rediseñado con estetica moderna (tema oscuro, secciones coloridas, encabezado) sin cambiar la logica verificada.
+- Instalador Windows generado: `dist_pc/Monitor_GPON.exe` (onefile PyInstaller) + helper + batch de requisitos.
 
 ### No Funciona / No Verificado
 
-- Pendiente retest manual de la APK `1.3.2+7` en el router de la casa (HG6145F): confirmar que el flujo de firmware antiguo (`get_base_info`) y los contadores GPON nativos siguen funcionando (el router del colegio ya fue confirmado funcional).
-- No se ha probado manualmente en un celular contra un router real despues de los cambios.
+- El instalador Windows `Monitor_GPON.exe` para el flujo RP3084+ (colegio) requiere Node.js y `npm install` de Playwright en el PC destino (documentado en `dist_pc/Monitor_GPON.bat`).
+- No se ha probado en un PC tercero el .exe empaquetado.
 - No hay validacion real con routers distintos al HG6145F.
 - Los contadores GPON y metricas opticas del firmware RP3084+ siguen sin nodo XML confirmado; por ahora aparecen vacios o en `0`/`N/A` en el helper nuevo.
 - No se encontro aun un contador total de consumo PON/WAN equivalente al `ponBytesSent/ponBytesReceived` del firmware antiguo.

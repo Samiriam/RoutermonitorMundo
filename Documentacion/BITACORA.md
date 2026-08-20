@@ -205,6 +205,15 @@
 - **Hito cumplido**: la APK ahora es funcional en AMBOS routers (casa y colegio), con la misma firma estable.
 - Pendiente decorativo/mejoras: estetica del programa PC y empaquetado como instalable de Windows.
 
+### GUI escritorio mejorada + instalador Windows 2026-08-18
+
+- Se rediseño `Scripts_PC/router_monitor_gui.py` con estetica moderna (tema oscuro, paleta de color, encabezado, secciones del arbol coloreadas por tipo: verde/ambar/naranja/rojo/muted), preservando toda la logica de red, calculo de ancho de banda, auto-refresh y exportacion.
+- Fix de localizacion del helper: en PyInstaller onefile el `router_web_client.js` se extrae a `sys._MEIPASS`; se agrego `_helper_path()` para resolver la ruta tanto empaquetada como en script.
+- Se instalo `PyInstaller` y se genero instalador onefile windowed: `dist_pc/Monitor_GPON.exe` (~17.8 MB).
+- `dist_pc/` incluye: `Monitor_GPON.exe`, `router_web_client.js`, `package.json` y `Monitor_GPON.bat` (requisitos + lanzamiento).
+- Verificacion: `py_compile` OK, instanciacion oculta de la GUI OK, `get_data()` devuelve datos reales del HG5853SF (RP3084+), y el .exe empaquetado arranca sin crash.
+- Nota: para el flujo RP3084+ (colegio) el PC destino necesita Node.js y `npm install` (Playwright); el router de casa (firmware antiguo) funciona solo con el .exe.
+
 ## Dos firmwares diferentes detectados
 
 | Característica | Router Casa (HG6145F) FW Antiguo | Router Nuevo (RP3084+) |
